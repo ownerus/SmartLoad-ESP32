@@ -1,0 +1,12 @@
+# Ignore everything by default.
+*
+
+# Keep directories visible so Git can reach allowed files below.
+!*/
+
+# Keep this rules file.
+!.gitignore
+
+# SmartLoad project files.
+!Server/server.py
+!Board/SmartLoad/SmartLoad.ino
