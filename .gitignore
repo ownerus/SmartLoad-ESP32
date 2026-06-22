@@ -4,8 +4,14 @@
 # Keep directories visible so Git can reach allowed files below.
 !*/
 
+# Ignore files inside visible directories unless they are allowed below.
+*.*
+
 # Keep this rules file.
 !.gitignore
+
+# Project description.
+!/README.md
 
 # SmartLoad project files.
 !Server/server.py
