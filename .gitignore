@@ -16,3 +16,5 @@
 # SmartLoad project files.
 !Server/server.py
 !Board/SmartLoad/SmartLoad.ino
+!Board/SmartLoad/config.h
+!Board/SmartLoad/libraries/**/*.h
