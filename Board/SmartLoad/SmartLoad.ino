@@ -24,16 +24,18 @@
 #define ENABLE_HTTP_TELEMETRY 1
 #define TELEMETRY_SERVER_URL "http://192.168.4.2:8000/telemetry"
 #define TELEMETRY_HTTP_TIMEOUT_MS 80
+#define TELEMETRY_FAIL_PAUSE_MS 5000UL
 
 // =====================================================
-// Пины по актуальной схеме SmartLoad.
+// Пины по неактуальной схеме SmartLoad.
 // =====================================================
 
 #define LED_STATUS_PIN      2
 
 #define ADC_CURRENT_N_PIN   34    // CurrentSensorN
 #define ADC_CURRENT_P_PIN   35    // CurrentSensorP
-#define ADC_VOLTAGE_PIN     32    // VoltageSensor
+#define ADC_VOLTAGE_P_PIN   32    // VoltageSensorP
+#define ADC_VOLTAGE_N_PIN   34    // VoltageSensorN
 
 #define LOAD_PWM_PIN        33    // PWM -> TLP152 -> MOSFET Q2
 #define FAN_PWM_PIN         25    // PWM_FAN
@@ -88,22 +90,23 @@
 #define VOLTAGE_R_TOP       220000.0
 #define VOLTAGE_R_BOTTOM    10000.0
 
-// Коэффициент пересчёта тока. Потом уточнить по внешнему амперметру.
-float currentK = 0.007326;
+// Коэффициент пересчёта тока: 24.39 А/В * 3.3 В / 4095.
+float currentK = 0.01965;
 
 // PI-регулятор тока для режима I = const.
 // Мягкие стартовые коэффициенты для первого запуска.
 float kpI = 0.8;       // P-часть: реакция на изменение ошибки
 float kiI = 1.5;       // I-часть: постепенное дотягивание тока
-float lastErrorI = 0.0;
 
 // PI-регулятор мощности для режима P = const.
 float kpP = 0.03;
 float kiP = 0.08;
-float lastErrorP = 0.0;
 
 // Если CurrentSensorP и CurrentSensorN фактически перепутаны, поставить 1.
 #define CURRENT_DIFF_INVERTED       0
+
+// Если VoltageSensorP и VoltageSensorN фактически перепутаны, поставить 1.
+#define VOLTAGE_DIFF_INVERTED       0
 
 #define CURRENT_DEAD_ZONE_A         0.00
 #define VOLTAGE_DEAD_ZONE_V         0.00
@@ -130,78 +133,11 @@ float lastErrorP = 0.0;
 WebServer server(80);
 
 // =====================================================
-// Режимы работы
+// Таймеры основного цикла.
 // =====================================================
-
-enum WorkMode {
-  MODE_WAITING,
-  MODE_I_CONST,
-  MODE_P_CONST,
-  MODE_ERROR
-};
-
-WorkMode mode = MODE_WAITING;
-
-// =====================================================
-// Состояние системы
-// =====================================================
-
-bool alarmState = false;
-bool fanState = false;
-bool filterReady = false;
-
-float setCurrentA = 10.0;
-float setPowerW = 100.0;
-float maxCurrentA = 10.0;
-float minVoltageV = 42.0;
-float maxTemperatureC = 70.0;
-int testTimeSec = 300;
-
-float measuredCurrentA = 0.0;
-float measuredVoltageV = 0.0;
-float measuredPowerW = 0.0;
-float radiatorTempC = -125.0;
-
-float instantCurrentA = 0.0;
-float instantVoltageV = 0.0;
-
-float filteredCurrentA = 0.0;
-float filteredVoltageV = 0.0;
-
-float currentZeroDiffRaw = 0.0;
-
-int pwmValue = 0;
-float pwmFloat = 0.0;
-
-int overCurrentCounter = 0;
-
-unsigned long testStartMs = 0;
-unsigned long savedElapsedSec = 0;
 
 unsigned long lastSensorMs = 0;
 unsigned long lastControlMs = 0;
-unsigned long lastLogMs = 0;
-unsigned long lastTelemetryMs = 0;
-
-String systemMessage = "";
-
-// =====================================================
-// Время от клиента
-// =====================================================
-
-bool clientTimeValid = false;
-int64_t clientEpochMs = 0;
-int clientTzOffsetMin = 0;
-unsigned long clientTimeSyncMs = 0;
-
-// =====================================================
-// DS18B20
-// =====================================================
-
-OneWire ds(TEMP_ONEWIRE_PIN);
-
-bool tempRequestStarted = false;
-unsigned long tempRequestMs = 0;
 
 // =====================================================
 // HTML веб-интерфейса
@@ -627,1068 +563,1141 @@ window.onload = function(){
 </html>
 )rawliteral";
 
-// =====================================================
-// Вспомогательные функции
-// =====================================================
+class Sensors {
+private:
+  uint8_t currentNPin;
+  uint8_t currentPPin;
+  uint8_t voltageNPin;
+  uint8_t voltagePPin;
 
-// Преобразует строку в 64-битное целое число.
-int64_t parseInt64(const String &s) {
-  int64_t value = 0;
-  bool negative = false;
-  int start = 0;
+  OneWire oneWire;
 
-  if (s.length() > 0 && s[0] == '-') {
-    negative = true;
-    start = 1;
+  float currentScale;
+  float zeroDiffRaw;
+  float filterK;
+
+  float instantCurrent;
+  float instantVoltage;
+  float filteredCurrent;
+  float filteredVoltage;
+  float measuredCurrent;
+  float measuredVoltage;
+  float measuredPower;
+  float measuredTemp;
+
+  bool filterIsReady;
+  bool tempRequestIsStarted;
+  unsigned long tempRequestStartMs;
+
+  float voltageDividerK() {
+    return (VOLTAGE_R_TOP + VOLTAGE_R_BOTTOM) / VOLTAGE_R_BOTTOM;
   }
 
-  for (int i = start; i < s.length(); i++) {
-    char c = s[i];
+  float readAnalogAverage(uint8_t pin) {
+    long sum = 0;
 
-    if (c < '0' || c > '9') {
-      break;
+    for (int i = 0; i < 16; i++) {
+      sum += analogRead(pin);
+      delayMicroseconds(50);
     }
 
-    value = value * 10 + (c - '0');
+    return sum / 16.0;
   }
 
-  return negative ? -value : value;
-}
+  void updateTemperature() {
+    if (!tempRequestIsStarted) {
+      if (oneWire.reset()) {
+        oneWire.write(0xCC);
+        oneWire.write(0x44);
+        tempRequestIsStarted = true;
+        tempRequestStartMs = millis();
+      }
 
-// Экранирует строку для JSON-ответа.
-String jsonEscape(String s) {
-  s.replace("\\", "\\\\");
-  s.replace("\"", "\\\"");
-  s.replace("\n", " ");
-  s.replace("\r", " ");
-  return s;
-}
+      return;
+    }
 
-// Кодирует строку для отправки в application/x-www-form-urlencoded.
-String urlEncode(String value) {
-  const char hex[] = "0123456789ABCDEF";
-  String encoded = "";
+    if (millis() - tempRequestStartMs < 800) {
+      return;
+    }
 
-  for (int i = 0; i < value.length(); i++) {
-    uint8_t c = (uint8_t)value[i];
+    byte dataTemp[9];
 
-    if ((c >= 'A' && c <= 'Z') ||
-        (c >= 'a' && c <= 'z') ||
-        (c >= '0' && c <= '9') ||
-        c == '-' || c == '_' || c == '.' || c == '~') {
-      encoded += (char)c;
-    } else if (c == ' ') {
-      encoded += '+';
+    if (oneWire.reset()) {
+      oneWire.write(0xCC);
+      oneWire.write(0xBE);
+
+      for (int i = 0; i < 9; i++) {
+        dataTemp[i] = oneWire.read();
+      }
+
+      if (OneWire::crc8(dataTemp, 8) == dataTemp[8]) {
+        int16_t rawTemp = (dataTemp[1] << 8) | dataTemp[0];
+        float temp = rawTemp * 0.0625;
+
+        if (temp > -55.0 && temp < 125.0) {
+          measuredTemp = temp;
+        }
+      }
+    }
+
+    tempRequestIsStarted = false;
+  }
+
+public:
+  Sensors() :
+    currentNPin(ADC_CURRENT_N_PIN),
+    currentPPin(ADC_CURRENT_P_PIN),
+    voltageNPin(ADC_VOLTAGE_N_PIN),
+    voltagePPin(ADC_VOLTAGE_P_PIN),
+    oneWire(TEMP_ONEWIRE_PIN),
+    currentScale(currentK),
+    zeroDiffRaw(0.0),
+    filterK(FILTER_K),
+    instantCurrent(0.0),
+    instantVoltage(0.0),
+    filteredCurrent(0.0),
+    filteredVoltage(0.0),
+    measuredCurrent(0.0),
+    measuredVoltage(0.0),
+    measuredPower(0.0),
+    measuredTemp(-125.0),
+    filterIsReady(false),
+    tempRequestIsStarted(false),
+    tempRequestStartMs(0) {
+  }
+
+  void begin() {
+    analogReadResolution(12);
+
+    analogSetPinAttenuation(currentPPin, ADC_11db);
+    analogSetPinAttenuation(currentNPin, ADC_11db);
+    analogSetPinAttenuation(voltagePPin, ADC_11db);
+    analogSetPinAttenuation(voltageNPin, ADC_11db);
+  }
+
+  bool calibrateCurrentZero() {
+    float sum = 0.0;
+    float minDiff = 1000000.0;
+    float maxDiff = -1000000.0;
+
+    for (int i = 0; i < CURRENT_ZERO_SAMPLES; i++) {
+      float rawP = readAnalogAverage(currentPPin);
+      float rawN = readAnalogAverage(currentNPin);
+
+      float diff = rawP - rawN;
+
+#if CURRENT_DIFF_INVERTED
+      diff = -diff;
+#endif
+
+      sum += diff;
+
+      if (diff < minDiff) {
+        minDiff = diff;
+      }
+
+      if (diff > maxDiff) {
+        maxDiff = diff;
+      }
+
+      delay(10);
+    }
+
+    float spread = maxDiff - minDiff;
+
+    if (spread > CURRENT_ZERO_STABILITY_RAW) {
+      return false;
+    }
+
+    zeroDiffRaw = sum / CURRENT_ZERO_SAMPLES;
+    resetFilter();
+
+    return true;
+  }
+
+  void update() {
+    float rawP = readAnalogAverage(currentPPin);
+    float rawN = readAnalogAverage(currentNPin);
+
+    float currentDiffRaw = rawP - rawN;
+
+#if CURRENT_DIFF_INVERTED
+    currentDiffRaw = -currentDiffRaw;
+#endif
+
+    instantCurrent = (currentDiffRaw - zeroDiffRaw) * currentScale;
+
+    if (instantCurrent < CURRENT_DEAD_ZONE_A) {
+      instantCurrent = 0.0;
+    }
+
+    float rawVoltageP = readAnalogAverage(voltagePPin);
+    float rawVoltageN = readAnalogAverage(voltageNPin);
+    float voltageDiffRaw = rawVoltageP - rawVoltageN;
+
+#if VOLTAGE_DIFF_INVERTED
+    voltageDiffRaw = -voltageDiffRaw;
+#endif
+
+    float adcVoltage = voltageDiffRaw * ADC_REF_VOLTAGE / ADC_MAX_VALUE;
+
+    instantVoltage = adcVoltage * voltageDividerK();
+
+    if (instantVoltage < VOLTAGE_DEAD_ZONE_V) {
+      instantVoltage = 0.0;
+    }
+
+    if (!filterIsReady) {
+      filteredCurrent = instantCurrent;
+      filteredVoltage = instantVoltage;
+      filterIsReady = true;
     } else {
-      encoded += '%';
-      encoded += hex[(c >> 4) & 0x0F];
-      encoded += hex[c & 0x0F];
+      filteredCurrent = filteredCurrent + filterK * (instantCurrent - filteredCurrent);
+      filteredVoltage = filteredVoltage + filterK * (instantVoltage - filteredVoltage);
     }
+
+    measuredCurrent = filteredCurrent;
+    measuredVoltage = filteredVoltage;
+    measuredPower = measuredVoltage * measuredCurrent;
+
+    updateTemperature();
   }
 
-  return encoded;
-}
-
-// Обновляет время ESP32 по параметрам, полученным от браузера.
-void updateClientTimeFromArgs() {
-  if (!server.hasArg("epoch")) {
-    return;
+  void resetFilter() {
+    instantCurrent = 0.0;
+    instantVoltage = 0.0;
+    filteredCurrent = 0.0;
+    filteredVoltage = 0.0;
+    measuredCurrent = 0.0;
+    measuredVoltage = 0.0;
+    measuredPower = 0.0;
+    filterIsReady = false;
   }
 
-  clientEpochMs = parseInt64(server.arg("epoch"));
-
-  if (server.hasArg("tz")) {
-    clientTzOffsetMin = server.arg("tz").toInt();
+  float getCurrentA() {
+    return measuredCurrent;
   }
 
-  clientTimeSyncMs = millis();
-  clientTimeValid = true;
-}
-
-// Возвращает текущее время для лога.
-String getTimestamp() {
-  if (!clientTimeValid) {
-    return "NO_CLIENT_TIME " + String(millis() / 1000) + "s";
+  float getVoltageV() {
+    return measuredVoltage;
   }
 
-  if (millis() - clientTimeSyncMs > CLIENT_TIME_TIMEOUT_MS) {
-    return "OLD_CLIENT_TIME " + String(millis() / 1000) + "s";
+  float getPowerW() {
+    return measuredPower;
   }
 
-  int64_t utcMs = clientEpochMs + (int64_t)(millis() - clientTimeSyncMs);
-  int64_t localMs = utcMs + (int64_t)clientTzOffsetMin * 60000LL;
-
-  time_t seconds = (time_t)(localMs / 1000LL);
-
-  struct tm timeinfo;
-  gmtime_r(&seconds, &timeinfo);
-
-  char buffer[24];
-
-  snprintf(
-    buffer,
-    sizeof(buffer),
-    "%04d-%02d-%02d %02d:%02d:%02d",
-    timeinfo.tm_year + 1900,
-    timeinfo.tm_mon + 1,
-    timeinfo.tm_mday,
-    timeinfo.tm_hour,
-    timeinfo.tm_min,
-    timeinfo.tm_sec
-  );
-
-  return String(buffer);
-}
-
-// Возвращает короткий код текущего режима.
-const char* getModeCode() {
-  switch (mode) {
-    case MODE_WAITING:
-      return "WAITING";
-    case MODE_I_CONST:
-      return "I_CONST";
-    case MODE_P_CONST:
-      return "P_CONST";
-    case MODE_ERROR:
-      return "ERROR";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-// Возвращает текст текущего режима для веб-интерфейса.
-const char* getModeText() {
-  switch (mode) {
-    case MODE_WAITING:
-      return "Ожидание";
-    case MODE_I_CONST:
-      return "I = const";
-    case MODE_P_CONST:
-      return "P = const";
-    case MODE_ERROR:
-      return "Авария";
-    default:
-      return "Ошибка";
-  }
-}
-
-bool isWorkMode() {
-  return mode == MODE_I_CONST || mode == MODE_P_CONST;
-}
-
-// Возвращает коэффициент делителя входного напряжения.
-float getVoltageK() {
-  return (VOLTAGE_R_TOP + VOLTAGE_R_BOTTOM) / VOLTAGE_R_BOTTOM;
-}
-
-// Возвращает прошедшее время текущего или последнего теста.
-unsigned long getElapsedSec() {
-  if (isWorkMode() && testStartMs > 0) {
-    return (millis() - testStartMs) / 1000;
+  float getTemperatureC() {
+    return measuredTemp;
   }
 
-  return savedElapsedSec;
-}
+  float getCurrentZeroRaw() {
+    return zeroDiffRaw;
+  }
 
-// =====================================================
-// PWM
-// =====================================================
+  float getVoltageDividerK() {
+    return voltageDividerK();
+  }
+};
 
-// Инициализирует PWM нагрузки и вентиляторов.
-void initPwm() {
-  ledcAttach(LOAD_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
-  ledcAttach(FAN_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+class LoadController {
+private:
+  enum ControllerMode {
+    CTRL_WAITING,
+    CTRL_I_CONST,
+    CTRL_P_CONST,
+    CTRL_ERROR
+  };
 
-  ledcWrite(LOAD_PWM_PIN, 0);
-  ledcWrite(FAN_PWM_PIN, 0);
-}
+  ControllerMode workMode;
 
-// Выводит PWM на силовую часть с учётом инверсии и безопасного режима.
-void writeLoadPwmHardware(int value) {
-  int out = value;
+  float targetCurrentA;
+  float targetPowerW;
+  float currentLimitA;
+  float voltageLimitV;
+  float temperatureLimitC;
+
+  float pwmCurrent;
+  int pwmOutput;
+
+  float currentKp;
+  float currentKi;
+  float powerKp;
+  float powerKi;
+
+  float currentLastError;
+  float powerLastError;
+
+  int durationSec;
+  unsigned long startMs;
+  unsigned long finishedElapsedSec;
+
+  bool alarmIsActive;
+  bool fanIsActive;
+  int overCurrentConfirmCounter;
+  String systemText;
+
+  float limitFloat(float value, float minValue, float maxValue) {
+    if (value < minValue) {
+      return minValue;
+    }
+
+    if (value > maxValue) {
+      return maxValue;
+    }
+
+    return value;
+  }
+
+  void writeLoadPwm(int value) {
+    pwmOutput = constrain(value, PWM_MIN, PWM_MAX);
+
+    int output = pwmOutput;
 
 #if PWM_INVERTED
-  out = PWM_MAX - value;
+    output = PWM_MAX - output;
 #endif
 
 #if ENABLE_LOAD_OUTPUT
-  ledcWrite(LOAD_PWM_PIN, out);
+    ledcWrite(LOAD_PWM_PIN, output);
 #else
-  ledcWrite(LOAD_PWM_PIN, 0);
+    ledcWrite(LOAD_PWM_PIN, 0);
 #endif
-}
-
-// Ограничивает и сохраняет PWM нагрузки.
-void setLoadPwm(int value) {
-  if (value < PWM_MIN) {
-    value = PWM_MIN;
   }
 
-  if (value > PWM_MAX) {
-    value = PWM_MAX;
-  }
+  float calculateIncrementalPi(float setpoint, float measured, float kp, float ki, float &lastError, float dt) {
+    float error = setpoint - measured;
+    float deltaP = kp * (error - lastError);
+    float deltaI = ki * error * dt;
 
-  pwmValue = value;
-  writeLoadPwmHardware(pwmValue);
-}
+    lastError = error;
 
-// Полностью отключает нагрузку и сбрасывает состояние регулятора.
-void disableLoad() {
-  pwmFloat = 0.0;
-  lastErrorI = 0.0;
-  lastErrorP = 0.0;
-  setLoadPwm(0);
-}
+    float delta = deltaP + deltaI;
 
-// Ограничивает и задаёт PWM вентиляторов.
-void setFanPwm(int value) {
-  if (value < 0) {
-    value = 0;
-  }
-
-  if (value > 255) {
-    value = 255;
-  }
-
-  ledcWrite(FAN_PWM_PIN, value);
-}
-
-// =====================================================
-// Датчики
-// =====================================================
-
-// Читает аналоговый вход с усреднением.
-float readAnalogAverage(uint8_t pin) {
-  long sum = 0;
-
-  for (int i = 0; i < 16; i++) {
-    sum += analogRead(pin);
-    delayMicroseconds(50);
-  }
-
-  return sum / 16.0;
-}
-
-// Обновляет температуру DS18B20 без долгой блокировки loop().
-void updateTemperatureSensor() {
-  if (!tempRequestStarted) {
-    if (ds.reset()) {
-      ds.write(0xCC);
-      ds.write(0x44);
-      tempRequestStarted = true;
-      tempRequestMs = millis();
+    if (delta > PWM_STEP_UP_MAX) {
+      delta = PWM_STEP_UP_MAX;
     }
 
-    return;
-  }
-
-  if (millis() - tempRequestMs < 800) {
-    return;
-  }
-
-  byte dataTemp[9];
-
-  if (ds.reset()) {
-    ds.write(0xCC);
-    ds.write(0xBE);
-
-    for (int i = 0; i < 9; i++) {
-      dataTemp[i] = ds.read();
+    if (delta < -PWM_STEP_DOWN_MAX) {
+      delta = -PWM_STEP_DOWN_MAX;
     }
 
-    if (OneWire::crc8(dataTemp, 8) == dataTemp[8]) {
-      int16_t rawTemp = (dataTemp[1] << 8) | dataTemp[0];
-      float temp = rawTemp * 0.0625;
-
-      if (temp > -55.0 && temp < 125.0) {
-        radiatorTempC = temp;
-      }
-    }
+    return delta;
   }
 
-  tempRequestStarted = false;
-}
-
-// Читает ток, напряжение, мощность и температуру.
-void readSensors() {
-  float rawP = readAnalogAverage(ADC_CURRENT_P_PIN);
-  float rawN = readAnalogAverage(ADC_CURRENT_N_PIN);
-
-  float currentDiffRaw = rawP - rawN;
-
-#if CURRENT_DIFF_INVERTED
-  currentDiffRaw = -currentDiffRaw;
-#endif
-
-  instantCurrentA = (currentDiffRaw - currentZeroDiffRaw) * currentK;
-
-  if (instantCurrentA < 0.0) {
-    instantCurrentA = 0.0;
+  void resetRegulators() {
+    currentLastError = 0.0;
+    powerLastError = 0.0;
   }
 
-  if (instantCurrentA < CURRENT_DEAD_ZONE_A) {
-    instantCurrentA = 0.0;
+  void setAlarm(String text) {
+    alarmIsActive = true;
+    systemText = "Авария: " + text;
+    workMode = CTRL_ERROR;
+    stopOutput();
   }
 
-  float rawVoltage = readAnalogAverage(ADC_VOLTAGE_PIN);
-
-  float adcVoltage = rawVoltage * ADC_REF_VOLTAGE / ADC_MAX_VALUE;
-  instantVoltageV = adcVoltage * getVoltageK();
-
-  if (instantVoltageV < VOLTAGE_DEAD_ZONE_V) {
-    instantVoltageV = 0.0;
+  void stopOutput() {
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
   }
 
-  if (!filterReady) {
-    filteredCurrentA = instantCurrentA;
-    filteredVoltageV = instantVoltageV;
-    filterReady = true;
-  } else {
-    filteredCurrentA = filteredCurrentA + FILTER_K * (instantCurrentA - filteredCurrentA);
-    filteredVoltageV = filteredVoltageV + FILTER_K * (instantVoltageV - filteredVoltageV);
+public:
+  LoadController() :
+    workMode(CTRL_WAITING),
+    targetCurrentA(1.0),
+    targetPowerW(10.0),
+    currentLimitA(1.0),
+    voltageLimitV(0.0),
+    temperatureLimitC(70.0),
+    pwmCurrent(0.0),
+    pwmOutput(0),
+    currentKp(kpI),
+    currentKi(kiI),
+    powerKp(kpP),
+    powerKi(kiP),
+    currentLastError(0.0),
+    powerLastError(0.0),
+    durationSec(300),
+    startMs(0),
+    finishedElapsedSec(0),
+    alarmIsActive(false),
+    fanIsActive(false),
+    overCurrentConfirmCounter(0),
+    systemText("") {
   }
 
-  measuredCurrentA = filteredCurrentA;
-  measuredVoltageV = filteredVoltageV;
-  measuredPowerW = measuredVoltageV * measuredCurrentA;
-
-  updateTemperatureSensor();
-}
-
-// =====================================================
-// Автокалибровка нуля тока
-// =====================================================
-
-// Измеряет ноль дифференциального датчика тока перед запуском.
-bool calibrateCurrentZero() {
-  if (isWorkMode()) {
-    systemMessage = "Калибровка нуля запрещена во время теста";
-    Serial.println("ZERO BLOCKED: TEST IS RUNNING");
-    return false;
+  void begin() {
+    ledcAttach(LOAD_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+    ledcAttach(FAN_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+    stopOutput();
+    ledcWrite(FAN_PWM_PIN, 0);
   }
 
-  disableLoad();
-  delay(300);
-
-  float sum = 0.0;
-  float minDiff = 1000000.0;
-  float maxDiff = -1000000.0;
-
-  for (int i = 0; i < CURRENT_ZERO_SAMPLES; i++) {
-    float rawP = readAnalogAverage(ADC_CURRENT_P_PIN);
-    float rawN = readAnalogAverage(ADC_CURRENT_N_PIN);
-
-    float diff = rawP - rawN;
-
-#if CURRENT_DIFF_INVERTED
-    diff = -diff;
-#endif
-
-    sum += diff;
-
-    if (diff < minDiff) {
-      minDiff = diff;
-    }
-
-    if (diff > maxDiff) {
-      maxDiff = diff;
-    }
-
-    delay(10);
-  }
-
-  float spread = maxDiff - minDiff;
-
-  if (spread > CURRENT_ZERO_STABILITY_RAW) {
-    systemMessage = "Калибровка нуля не выполнена: сигнал тока нестабилен";
-    Serial.print("ZERO FAILED. Spread raw = ");
-    Serial.println(spread);
-    return false;
-  }
-
-  currentZeroDiffRaw = sum / CURRENT_ZERO_SAMPLES;
-
-  instantCurrentA = 0.0;
-  measuredCurrentA = 0.0;
-  filteredCurrentA = 0.0;
-  filterReady = false;
-
-  systemMessage = "Калибровка нуля выполнена";
-
-  Serial.print("ZERO OK. ZeroDiff raw = ");
-  Serial.println(currentZeroDiffRaw);
-
-  return true;
-}
-
-// =====================================================
-// Логирование и телеметрия
-// =====================================================
-
-// Отправляет строку лога на Python HTTP-сервер.
-void sendLogToServer(String line) {
-#if ENABLE_HTTP_TELEMETRY
-  if (WiFi.softAPgetStationNum() == 0) {
-    return;
-  }
-
-  HTTPClient http;
-  http.begin(TELEMETRY_SERVER_URL);
-  http.setTimeout(TELEMETRY_HTTP_TIMEOUT_MS);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-  http.POST("line=" + urlEncode(line));
-  http.end();
-#else
-  (void)line;
-#endif
-}
-
-// Формирует строку телеметрии в формате CSV.
-String buildLogLine(String eventName, String infoText) {
-  String line = "";
-
-  line += getTimestamp();
-  line += ",";
-  line += eventName;
-  line += ",";
-  line += String(measuredCurrentA, 3);
-  line += ",";
-  line += String(measuredVoltageV, 2);
-  line += ",";
-  line += String(measuredPowerW, 1);
-  line += ",";
-  line += String(radiatorTempC, 1);
-  line += ",";
-  line += String(pwmValue);
-  line += ",";
-  line += String(getElapsedSec());
-  line += ",";
-  line += getModeCode();
-  line += ",";
-  line += infoText;
-
-  return line;
-}
-
-// Формирует строку лога, пишет её в Serial и передаёт на сервер.
-void writeLog(String eventName, String infoText) {
-  String line = buildLogLine(eventName, infoText);
-
-  Serial.println(line);
-  sendLogToServer(line);
-}
-
-// Передаёт текущую телеметрию на сервер 10 раз в секунду, а в Serial пишет раз в секунду.
-void writePeriodicTelemetry() {
-  String eventName;
-
-  if (isWorkMode()) {
-    eventName = "DATA";
-  } else if (mode == MODE_ERROR || alarmState) {
-    eventName = "ERROR_STATE";
-  } else {
-    eventName = "IDLE";
-  }
-
-  if (millis() - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
-    lastTelemetryMs = millis();
-    sendLogToServer(buildLogLine(eventName, ""));
-  }
-
-  if (millis() - lastLogMs < LOG_PERIOD_MS) {
-    return;
-  }
-
-  lastLogMs = millis();
-  Serial.println(buildLogLine(eventName, ""));
-}
-
-// =====================================================
-// Вентиляторы и регулирование
-// =====================================================
-
-// Управляет вентиляторами по режиму и температуре радиатора.
-void controlFan() {
-  if (isWorkMode()) {
-    fanState = true;
-  }
-
-  if (radiatorTempC >= FAN_ON_TEMP_C) {
-    fanState = true;
-  }
-
-  if (!isWorkMode() && radiatorTempC <= FAN_OFF_TEMP_C) {
-    fanState = false;
-  }
-
-  setFanPwm(fanState ? 255 : 0);
-}
-
-// Выполняет один шаг PI-регулятора тока для режима I = const.
-void regulateIConst() {
-  float dt = CONTROL_PERIOD_MS / 1000.0;
-
-  float error = setCurrentA - measuredCurrentA;
-
-  float deltaP = kpI * (error - lastErrorI);
-  float deltaI = kiI * error * dt;
-
-  float delta = deltaP + deltaI;
-
-  lastErrorI = error;
-
-  if (delta > PWM_STEP_UP_MAX) {
-    delta = PWM_STEP_UP_MAX;
-  }
-
-  if (delta < -PWM_STEP_DOWN_MAX) {
-    delta = -PWM_STEP_DOWN_MAX;
-  }
-
-  pwmFloat += delta;
-
-  if (pwmFloat < PWM_MIN) {
-    pwmFloat = PWM_MIN;
-  }
-
-  if (pwmFloat > PWM_MAX) {
-    pwmFloat = PWM_MAX;
-  }
-
-  setLoadPwm((int)pwmFloat);
-}
-
-// Выполняет один шаг PI-регулятора мощности для режима P = const.
-void regulatePConst() {
-  float dt = CONTROL_PERIOD_MS / 1000.0;
-
-  float error = setPowerW - measuredPowerW;
-
-  float deltaP = kpP * (error - lastErrorP);
-  float deltaI = kiP * error * dt;
-
-  float delta = deltaP + deltaI;
-
-  lastErrorP = error;
-
-  if (delta > PWM_STEP_UP_MAX) {
-    delta = PWM_STEP_UP_MAX;
-  }
-
-  if (delta < -PWM_STEP_DOWN_MAX) {
-    delta = -PWM_STEP_DOWN_MAX;
-  }
-
-  pwmFloat += delta;
-
-  if (pwmFloat < PWM_MIN) {
-    pwmFloat = PWM_MIN;
-  }
-
-  if (pwmFloat > PWM_MAX) {
-    pwmFloat = PWM_MAX;
-  }
-
-  setLoadPwm((int)pwmFloat);
-}
-
-// =====================================================
-// Старт, остановка и защиты
-// =====================================================
-
-// Запускает режим стабилизации тока.
-void startIConst(float currentSet, float vminSet, int timeSet, float tempSet) {
-  if (alarmState) {
-    systemMessage = "Старт запрещён: активна авария";
-    Serial.println("START BLOCKED: ALARM ACTIVE");
-    return;
-  }
-
-  if (isWorkMode()) {
-    systemMessage = "Старт запрещён: тест уже запущен";
-    Serial.println("START BLOCKED: TEST IS RUNNING");
-    return;
-  }
-
-  systemMessage = "Автокалибровка нуля тока...";
-
-  if (!calibrateCurrentZero()) {
-    systemMessage = "Старт запрещён: автокалибровка нуля не выполнена";
-    Serial.println("START BLOCKED: AUTO ZERO FAILED");
-    return;
-  }
-
-  readSensors();
-
-  setCurrentA = currentSet;
-  minVoltageV = vminSet;
-  testTimeSec = timeSet;
-  maxTemperatureC = tempSet;
-
-  savedElapsedSec = 0;
-  testStartMs = millis();
-  lastControlMs = millis();
-  lastLogMs = millis();
-  lastTelemetryMs = millis();
-  overCurrentCounter = 0;
-
-  pwmFloat = 0.0;
-  lastErrorI = 0.0;
-  lastErrorP = 0.0;
-  setLoadPwm(0);
-
-  mode = MODE_I_CONST;
-  systemMessage = "Тест I = const запущен";
-
-  controlFan();
-
-  writeLog("START", "Iset=" + String(setCurrentA, 2) +
-                    " Vmin=" + String(minVoltageV, 2) +
-                    " Time=" + String(testTimeSec) +
-                    " Tmax=" + String(maxTemperatureC, 1));
-
-  Serial.println("I const started");
-}
-
-// Запускает режим стабилизации мощности.
-void startPConst(float powerSet, float imaxSet, float vminSet, int timeSet, float tempSet) {
-  if (alarmState) {
-    systemMessage = "Старт запрещён: активна авария";
-    Serial.println("START BLOCKED: ALARM ACTIVE");
-    return;
-  }
-
-  if (isWorkMode()) {
-    systemMessage = "Старт запрещён: тест уже запущен";
-    Serial.println("START BLOCKED: TEST IS RUNNING");
-    return;
-  }
-
-  systemMessage = "Автокалибровка нуля тока...";
-
-  if (!calibrateCurrentZero()) {
-    systemMessage = "Старт запрещён: автокалибровка нуля не выполнена";
-    Serial.println("START BLOCKED: AUTO ZERO FAILED");
-    return;
-  }
-
-  readSensors();
-
-  setPowerW = powerSet;
-  maxCurrentA = imaxSet;
-  minVoltageV = vminSet;
-  testTimeSec = timeSet;
-  maxTemperatureC = tempSet;
-
-  savedElapsedSec = 0;
-  testStartMs = millis();
-  lastControlMs = millis();
-  lastLogMs = millis();
-  lastTelemetryMs = millis();
-  overCurrentCounter = 0;
-
-  pwmFloat = 0.0;
-  lastErrorI = 0.0;
-  lastErrorP = 0.0;
-  setLoadPwm(0);
-
-  mode = MODE_P_CONST;
-  systemMessage = "Тест P = const запущен";
-
-  controlFan();
-
-  writeLog("START", "Pset=" + String(setPowerW, 1) +
-                    " Imax=" + String(maxCurrentA, 2) +
-                    " Vmin=" + String(minVoltageV, 2) +
-                    " Time=" + String(testTimeSec) +
-                    " Tmax=" + String(maxTemperatureC, 1));
-
-  Serial.println("P const started");
-}
-
-// Выполняет штатную остановку теста.
-void finishTest() {
-  if (alarmState) {
-    systemMessage = "Остановка игнорирована: активна авария, требуется сброс";
-    Serial.println("FINISH IGNORED: ALARM ACTIVE");
-    return;
-  }
-
-  savedElapsedSec = getElapsedSec();
-
-  if (isWorkMode()) {
-    writeLog("END", "");
-  }
-
-  mode = MODE_WAITING;
-  overCurrentCounter = 0;
-
-  disableLoad();
-  controlFan();
-
-  systemMessage = "Тест остановлен";
-  Serial.println("Load ended");
-}
-
-// Завершает тест по заданному времени.
-void finishByTime() {
-  savedElapsedSec = getElapsedSec();
-
-  if (isWorkMode()) {
-    writeLog("END", "TIME_END");
-  }
-
-  mode = MODE_WAITING;
-  overCurrentCounter = 0;
-
-  disableLoad();
-  controlFan();
-
-  systemMessage = "Тест завершён по времени";
-  Serial.println("Load ended by time");
-}
-
-// Переводит систему в аварийное состояние.
-void setError(String errorText) {
-  savedElapsedSec = getElapsedSec();
-
-  if (isWorkMode()) {
-    writeLog("ERROR", errorText);
-  }
-
-  alarmState = true;
-  mode = MODE_ERROR;
-  overCurrentCounter = 0;
-
-  disableLoad();
-  controlFan();
-
-  systemMessage = "Авария: " + errorText;
-
-  Serial.print("ERROR: ");
-  Serial.println(errorText);
-}
-
-// Выполняет аварийный стоп.
-void emergencyStop() {
-  setError("EMERGENCY");
-}
-
-// Сбрасывает аварийную блокировку.
-void resetAlarm() {
-  if (!alarmState) {
-    systemMessage = "Нет активной аварии";
-    Serial.println("RESET IGNORED: NO ALARM");
-    return;
-  }
-
-  alarmState = false;
-  mode = MODE_WAITING;
-  savedElapsedSec = 0;
-  overCurrentCounter = 0;
-
-  disableLoad();
-  controlFan();
-
-  systemMessage = "Авария сброшена";
-
-  writeLog("RESET", "Alarm reset");
-
-  Serial.println("Alarm reset");
-}
-
-// Проверяет программные защиты.
-void checkProtection() {
-  if (alarmState || !isWorkMode()) {
-    return;
-  }
-
-  if (getElapsedSec() >= (unsigned long)testTimeSec) {
-    finishByTime();
-    return;
-  }
-
-#if ENABLE_VOLTAGE_PROTECTION
-  if (minVoltageV > 0.0 && measuredVoltageV < minVoltageV) {
-    setError("LOW_VOLTAGE");
-    return;
-  }
-#endif
-
-  if (radiatorTempC > maxTemperatureC) {
-    setError("OVER_TEMPERATURE");
-    return;
-  }
-
-  bool overCurrent = false;
-
-  if (mode == MODE_I_CONST) {
-    overCurrent = instantCurrentA > setCurrentA * OVER_CURRENT_FACTOR && instantCurrentA > 1.0;
-  }
-
-  if (mode == MODE_P_CONST) {
-    overCurrent = maxCurrentA > 0.0 && instantCurrentA > maxCurrentA;
-  }
-
-  if (overCurrent) {
-    overCurrentCounter++;
-
-    if (overCurrentCounter >= OVER_CURRENT_CONFIRM_COUNT) {
-      setError("OVER_CURRENT");
+  void update(float currentA, float voltageV, float powerW, float temperatureC) {
+    if (!isRunning()) {
+      updateFan(temperatureC);
       return;
     }
-  } else {
-    overCurrentCounter = 0;
+
+    if (durationSec > 0 && getElapsedSec() >= (unsigned long)durationSec) {
+      finishedElapsedSec = getElapsedSec();
+      stopOutput();
+      overCurrentConfirmCounter = 0;
+      workMode = CTRL_WAITING;
+      systemText = "Тест завершён по времени";
+      updateFan(temperatureC);
+      return;
+    }
+
+#if ENABLE_VOLTAGE_PROTECTION
+    if (voltageLimitV > 0.0 && voltageV < voltageLimitV) {
+      setAlarm("LOW_VOLTAGE");
+      return;
+    }
+#endif
+
+    if (temperatureC > temperatureLimitC) {
+      setAlarm("OVER_TEMPERATURE");
+      updateFan(temperatureC);
+      return;
+    }
+
+    if (workMode == CTRL_I_CONST) {
+      if (currentA > targetCurrentA * OVER_CURRENT_FACTOR && currentA > 1.0) {
+        overCurrentConfirmCounter++;
+
+        if (overCurrentConfirmCounter >= OVER_CURRENT_CONFIRM_COUNT) {
+          setAlarm("OVER_CURRENT");
+          updateFan(temperatureC);
+          return;
+        }
+      } else {
+        overCurrentConfirmCounter = 0;
+      }
+
+      float dt = CONTROL_PERIOD_MS / 1000.0;
+      pwmCurrent += calculateIncrementalPi(targetCurrentA, currentA, currentKp, currentKi, currentLastError, dt);
+      pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+      writeLoadPwm((int)pwmCurrent);
+    }
+
+    if (workMode == CTRL_P_CONST) {
+      if (currentA > currentLimitA) {
+        overCurrentConfirmCounter++;
+
+        if (overCurrentConfirmCounter >= OVER_CURRENT_CONFIRM_COUNT) {
+          setAlarm("OVER_CURRENT");
+          updateFan(temperatureC);
+          return;
+        }
+      } else {
+        overCurrentConfirmCounter = 0;
+      }
+
+      float dt = CONTROL_PERIOD_MS / 1000.0;
+      pwmCurrent += calculateIncrementalPi(targetPowerW, powerW, powerKp, powerKi, powerLastError, dt);
+      pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+      writeLoadPwm((int)pwmCurrent);
+    }
+
+    updateFan(temperatureC);
   }
-}
 
-// Обслуживает стенд в рабочем цикле.
-void processStand() {
-  if (!isWorkMode() || alarmState) {
-    controlFan();
-    return;
+  bool startIConst(float currentSet, float voltageMin, int timeSec, float temperatureMax) {
+    if (alarmIsActive || isRunning()) {
+      systemText = alarmIsActive ? "Старт запрещён: активна авария" : "Старт запрещён: тест уже запущен";
+      return false;
+    }
+
+    targetCurrentA = currentSet;
+    voltageLimitV = voltageMin;
+    durationSec = timeSec;
+    temperatureLimitC = temperatureMax;
+    finishedElapsedSec = 0;
+    startMs = millis();
+    overCurrentConfirmCounter = 0;
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
+    workMode = CTRL_I_CONST;
+    systemText = "Тест I = const запущен";
+
+    return true;
   }
 
-  checkProtection();
+  bool startPConst(float powerSet, float currentMax, float voltageMin, int timeSec, float temperatureMax) {
+    if (alarmIsActive || isRunning()) {
+      systemText = alarmIsActive ? "Старт запрещён: активна авария" : "Старт запрещён: тест уже запущен";
+      return false;
+    }
 
-  if (!isWorkMode() || alarmState) {
-    controlFan();
-    return;
+    targetPowerW = powerSet;
+    currentLimitA = currentMax;
+    voltageLimitV = voltageMin;
+    durationSec = timeSec;
+    temperatureLimitC = temperatureMax;
+    finishedElapsedSec = 0;
+    startMs = millis();
+    overCurrentConfirmCounter = 0;
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
+    workMode = CTRL_P_CONST;
+    systemText = "Тест P = const запущен";
+
+    return true;
   }
 
-  if (millis() - lastControlMs >= CONTROL_PERIOD_MS) {
-    lastControlMs = millis();
+  void stop() {
+    if (alarmIsActive) {
+      systemText = "Остановка игнорирована: активна авария, требуется сброс";
+      return;
+    }
 
-    if (mode == MODE_I_CONST) {
-      regulateIConst();
-    } else if (mode == MODE_P_CONST) {
-      regulatePConst();
+    finishedElapsedSec = getElapsedSec();
+    stopOutput();
+    overCurrentConfirmCounter = 0;
+    workMode = CTRL_WAITING;
+    systemText = "Тест остановлен";
+  }
+
+  void emergencyStop() {
+    setAlarm("EMERGENCY_STOP");
+  }
+
+  void resetAlarm() {
+    if (!alarmIsActive) {
+      return;
+    }
+
+    alarmIsActive = false;
+    systemText = "Авария сброшена";
+    workMode = CTRL_WAITING;
+    finishedElapsedSec = 0;
+    overCurrentConfirmCounter = 0;
+    stopOutput();
+  }
+
+  void setMessage(String text) {
+    systemText = text;
+  }
+
+  bool canStart() {
+    return !alarmIsActive && !isRunning();
+  }
+
+  void updateFan(float temperatureC) {
+    if (isRunning()) {
+      fanIsActive = true;
+    }
+
+    if (temperatureC >= FAN_ON_TEMP_C) {
+      fanIsActive = true;
+    }
+
+    if (!isRunning() && temperatureC <= FAN_OFF_TEMP_C) {
+      fanIsActive = false;
+    }
+
+    ledcWrite(FAN_PWM_PIN, fanIsActive ? 255 : 0);
+  }
+
+  bool isRunning() {
+    return workMode == CTRL_I_CONST || workMode == CTRL_P_CONST;
+  }
+
+  bool hasAlarm() {
+    return alarmIsActive;
+  }
+
+  bool isFanOn() {
+    return fanIsActive;
+  }
+
+  int getPwm() {
+    return pwmOutput;
+  }
+
+  unsigned long getElapsedSec() {
+    if (isRunning()) {
+      return (millis() - startMs) / 1000UL;
+    }
+
+    return finishedElapsedSec;
+  }
+
+  String getModeText() {
+    if (workMode == CTRL_I_CONST) {
+      return "I = const";
+    }
+
+    if (workMode == CTRL_P_CONST) {
+      return "P = const";
+    }
+
+    if (workMode == CTRL_ERROR) {
+      return "Авария";
+    }
+
+    return "Ожидание";
+  }
+
+  const char* getModeCode() {
+    if (workMode == CTRL_I_CONST) {
+      return "I_CONST";
+    }
+
+    if (workMode == CTRL_P_CONST) {
+      return "P_CONST";
+    }
+
+    if (workMode == CTRL_ERROR) {
+      return "ERROR";
+    }
+
+    return "WAITING";
+  }
+
+  String getMessage() {
+    return systemText;
+  }
+};
+
+class HttpInterface {
+private:
+  WebServer *web;
+  Sensors *sensorSource;
+  LoadController *loadController;
+  bool clientTimeValid;
+  int64_t clientEpochMs;
+  int clientTzOffsetMin;
+  unsigned long clientTimeSyncMs;
+
+  int64_t parseInt64(const String &text) {
+    int64_t value = 0;
+    bool negative = false;
+    int start = 0;
+
+    if (text.length() > 0 && text[0] == '-') {
+      negative = true;
+      start = 1;
+    }
+
+    for (int i = start; i < text.length(); i++) {
+      char c = text[i];
+
+      if (c < '0' || c > '9') {
+        break;
+      }
+
+      value = value * 10 + (c - '0');
+    }
+
+    return negative ? -value : value;
+  }
+
+  void updateClientTimeFromArgs() {
+    if (web == nullptr || !web->hasArg("epoch")) {
+      return;
+    }
+
+    clientEpochMs = parseInt64(web->arg("epoch"));
+
+    if (web->hasArg("tz")) {
+      clientTzOffsetMin = web->arg("tz").toInt();
+    }
+
+    clientTimeSyncMs = millis();
+    clientTimeValid = true;
+  }
+
+  String escapeJson(String text) {
+    text.replace("\\", "\\\\");
+    text.replace("\"", "\\\"");
+    text.replace("\n", " ");
+    text.replace("\r", " ");
+
+    return text;
+  }
+
+  String buildDataJson() {
+    String json = "{";
+
+    json += "\"mode\":\"";
+    json += loadController->getModeCode();
+    json += "\",";
+
+    json += "\"current\":";
+    json += String(sensorSource->getCurrentA(), 3);
+    json += ",";
+
+    json += "\"voltage\":";
+    json += String(sensorSource->getVoltageV(), 2);
+    json += ",";
+
+    json += "\"power\":";
+    json += String(sensorSource->getPowerW(), 1);
+    json += ",";
+
+    json += "\"temp\":";
+    json += String(sensorSource->getTemperatureC(), 1);
+    json += ",";
+
+    json += "\"pwm\":";
+    json += String(loadController->getPwm());
+    json += ",";
+
+    json += "\"elapsed\":";
+    json += String(loadController->getElapsedSec());
+    json += ",";
+
+    json += "\"modeText\":\"";
+    json += escapeJson(loadController->getModeText());
+    json += "\",";
+
+    json += "\"alarm\":";
+    json += loadController->hasAlarm() ? "true" : "false";
+    json += ",";
+
+    json += "\"message\":\"";
+    json += escapeJson(loadController->getMessage());
+    json += "\"";
+
+    json += "}";
+
+    return json;
+  }
+
+  void sendJson() {
+    if (web == nullptr || sensorSource == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    web->send(200, "application/json; charset=UTF-8", buildDataJson());
+  }
+
+  void handleData() {
+    sendJson();
+  }
+
+  void handleRoot() {
+    if (web == nullptr) {
+      return;
+    }
+
+    web->send_P(200, "text/html; charset=UTF-8", INDEX_HTML);
+  }
+
+  void handleClientTime() {
+    if (web == nullptr) {
+      return;
+    }
+
+    updateClientTimeFromArgs();
+    web->send(200, "application/json; charset=UTF-8", "{\"ok\":true}");
+  }
+
+  void handleStartI() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    updateClientTimeFromArgs();
+
+    float currentSet = web->arg("i").toFloat();
+    float voltageMin = web->arg("vmin").toFloat();
+    int timeSec = web->arg("time").toInt();
+    float temperatureMax = web->arg("temp").toFloat();
+
+    if (currentSet <= 0.0) {
+      currentSet = 1.0;
+    }
+
+    if (voltageMin < 0.0) {
+      voltageMin = 0.0;
+    }
+
+    if (timeSec <= 0) {
+      timeSec = 300;
+    }
+
+    if (timeSec > 86400) {
+      timeSec = 86400;
+    }
+
+    if (temperatureMax <= 0.0) {
+      temperatureMax = 70.0;
+    }
+
+    if (!loadController->canStart()) {
+      loadController->startIConst(currentSet, voltageMin, timeSec, temperatureMax);
+      sendJson();
+      return;
+    }
+
+    loadController->setMessage("Автокалибровка нуля тока...");
+
+    if (!sensorSource->calibrateCurrentZero()) {
+      loadController->setMessage("Старт запрещён: автокалибровка нуля не выполнена");
+      Serial.println("START BLOCKED: AUTO ZERO FAILED");
+      sendJson();
+      return;
+    }
+
+    sensorSource->update();
+    loadController->startIConst(currentSet, voltageMin, timeSec, temperatureMax);
+    sendJson();
+  }
+
+  void handleStartP() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    updateClientTimeFromArgs();
+
+    float powerSet = web->arg("p").toFloat();
+    float currentMax = web->arg("imax").toFloat();
+    float voltageMin = web->arg("vmin").toFloat();
+    int timeSec = web->arg("time").toInt();
+    float temperatureMax = web->arg("temp").toFloat();
+
+    if (powerSet <= 0.0) {
+      powerSet = 10.0;
+    }
+
+    if (currentMax <= 0.0) {
+      currentMax = 1.0;
+    }
+
+    if (voltageMin < 0.0) {
+      voltageMin = 0.0;
+    }
+
+    if (timeSec <= 0) {
+      timeSec = 300;
+    }
+
+    if (timeSec > 86400) {
+      timeSec = 86400;
+    }
+
+    if (temperatureMax <= 0.0) {
+      temperatureMax = 70.0;
+    }
+
+    if (!loadController->canStart()) {
+      loadController->startPConst(powerSet, currentMax, voltageMin, timeSec, temperatureMax);
+      sendJson();
+      return;
+    }
+
+    loadController->setMessage("Автокалибровка нуля тока...");
+
+    if (!sensorSource->calibrateCurrentZero()) {
+      loadController->setMessage("Старт запрещён: автокалибровка нуля не выполнена");
+      Serial.println("START BLOCKED: AUTO ZERO FAILED");
+      sendJson();
+      return;
+    }
+
+    sensorSource->update();
+    loadController->startPConst(powerSet, currentMax, voltageMin, timeSec, temperatureMax);
+    sendJson();
+  }
+
+  void handleCommand() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    updateClientTimeFromArgs();
+
+    String action = web->arg("act");
+
+    if (action == "off") {
+      loadController->stop();
+    } else if (action == "estop") {
+      loadController->emergencyStop();
+    } else if (action == "reset") {
+      loadController->resetAlarm();
+    }
+
+    sendJson();
+  }
+
+  void handleNotFound() {
+    if (web == nullptr) {
+      return;
+    }
+
+    web->send(404, "text/plain; charset=UTF-8", "Not found");
+  }
+
+public:
+  HttpInterface() :
+    web(nullptr),
+    sensorSource(nullptr),
+    loadController(nullptr),
+    clientTimeValid(false),
+    clientEpochMs(0),
+    clientTzOffsetMin(0),
+    clientTimeSyncMs(0) {
+  }
+
+  void begin(WebServer &serverRef, Sensors &sensorsRef, LoadController &controllerRef) {
+    web = &serverRef;
+    sensorSource = &sensorsRef;
+    loadController = &controllerRef;
+
+    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+
+    Serial.print("Wi-Fi name: ");
+    Serial.println(WIFI_SSID);
+
+    Serial.print("Wi-Fi password: ");
+    Serial.println(WIFI_PASSWORD);
+
+    Serial.print("IP address: ");
+    Serial.println(WiFi.softAPIP());
+
+    web->on("/", [this]() {
+      handleRoot();
+    });
+
+    web->on("/data", [this]() {
+      handleData();
+    });
+
+    web->on("/clienttime", [this]() {
+      handleClientTime();
+    });
+
+    web->on("/start", [this]() {
+      handleStartI();
+    });
+
+    web->on("/startp", [this]() {
+      handleStartP();
+    });
+
+    web->on("/cmd", [this]() {
+      handleCommand();
+    });
+
+    web->onNotFound([this]() {
+      handleNotFound();
+    });
+
+    web->begin();
+
+    Serial.println("Web server started");
+  }
+
+  void update() {
+    if (web != nullptr) {
+      web->handleClient();
     }
   }
 
-  controlFan();
-}
+  String getTimestamp() {
+    if (!clientTimeValid) {
+      return "NO_CLIENT_TIME " + String(millis() / 1000) + "s";
+    }
 
-// =====================================================
-// HTTP-обработчики ESP32
-// =====================================================
+    if (millis() - clientTimeSyncMs > CLIENT_TIME_TIMEOUT_MS) {
+      return "OLD_CLIENT_TIME " + String(millis() / 1000) + "s";
+    }
 
-// Отправляет основные данные для веб-интерфейса.
-void sendDataJson() {
-  String json = "{";
+    int64_t utcMs = clientEpochMs + (int64_t)(millis() - clientTimeSyncMs);
+    int64_t localMs = utcMs + (int64_t)clientTzOffsetMin * 60000LL;
 
-  json += "\"mode\":\"";
-  json += getModeCode();
-  json += "\",";
+    time_t seconds = (time_t)(localMs / 1000LL);
 
-  json += "\"modeText\":\"";
-  json += getModeText();
-  json += "\",";
+    struct tm timeinfo;
+    gmtime_r(&seconds, &timeinfo);
 
-  json += "\"alarm\":";
-  json += (alarmState ? "true" : "false");
-  json += ",";
+    char buffer[24];
 
-  json += "\"current\":";
-  json += String(measuredCurrentA, 3);
-  json += ",";
+    snprintf(
+      buffer,
+      sizeof(buffer),
+      "%04d-%02d-%02d %02d:%02d:%02d",
+      timeinfo.tm_year + 1900,
+      timeinfo.tm_mon + 1,
+      timeinfo.tm_mday,
+      timeinfo.tm_hour,
+      timeinfo.tm_min,
+      timeinfo.tm_sec
+    );
 
-  json += "\"voltage\":";
-  json += String(measuredVoltageV, 2);
-  json += ",";
+    return String(buffer);
+  }
+};
 
-  json += "\"power\":";
-  json += String(measuredPowerW, 1);
-  json += ",";
+class TelemetryClient {
+private:
+  const char *serverUrl;
+  unsigned long sendPeriodMs;
+  unsigned long httpTimeoutMs;
+  unsigned long lastSendMs;
+  unsigned long lastSerialLogMs;
+  unsigned long pauseUntilMs;
+  int failCounter;
+  bool enabled;
 
-  json += "\"temp\":";
-  json += String(radiatorTempC, 1);
-  json += ",";
+  String encode(String value) {
+    String encoded = "";
+    const char *hex = "0123456789ABCDEF";
 
-  json += "\"message\":\"";
-  json += jsonEscape(systemMessage);
-  json += "\"";
+    for (unsigned int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
 
-  json += "}";
+      if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+        encoded += c;
+      } else if (c == ' ') {
+        encoded += '+';
+      } else {
+        encoded += '%';
+        encoded += hex[(c >> 4) & 0x0F];
+        encoded += hex[c & 0x0F];
+      }
+    }
 
-  server.send(200, "application/json; charset=UTF-8", json);
-}
-
-// Отдаёт главную HTML-страницу.
-void handleRoot() {
-  server.send_P(200, "text/html; charset=UTF-8", INDEX_HTML);
-}
-
-// Отдаёт JSON с текущими измерениями.
-void handleData() {
-  sendDataJson();
-}
-
-// Принимает текущее время от браузера.
-void handleClientTime() {
-  updateClientTimeFromArgs();
-  server.send(200, "application/json; charset=UTF-8", "{\"ok\":true}");
-}
-
-// Обрабатывает запуск режима I = const.
-void handleStart() {
-  updateClientTimeFromArgs();
-
-  float currentSet = server.arg("i").toFloat();
-  float vminSet = server.arg("vmin").toFloat();
-  int timeSet = server.arg("time").toInt();
-  float tempSet = server.arg("temp").toFloat();
-
-  if (currentSet <= 0.0) {
-    currentSet = 1.0;
+    return encoded;
   }
 
-  if (vminSet < 0.0) {
-    vminSet = 0.0;
+public:
+  TelemetryClient() :
+    serverUrl(TELEMETRY_SERVER_URL),
+    sendPeriodMs(TELEMETRY_PERIOD_MS),
+    httpTimeoutMs(TELEMETRY_HTTP_TIMEOUT_MS),
+    lastSendMs(0),
+    lastSerialLogMs(0),
+    pauseUntilMs(0),
+    failCounter(0),
+    enabled(ENABLE_HTTP_TELEMETRY) {
   }
 
-  if (timeSet <= 0) {
-    timeSet = 300;
+  void begin() {
+    lastSendMs = 0;
+    lastSerialLogMs = 0;
+    pauseUntilMs = 0;
+    failCounter = 0;
   }
 
-  if (timeSet > 86400) {
-    timeSet = 86400;
+  bool shouldSend() {
+    if (!enabled) {
+      return false;
+    }
+
+    if (millis() < pauseUntilMs) {
+      return false;
+    }
+
+    if (millis() - lastSendMs < sendPeriodMs) {
+      return false;
+    }
+
+    return true;
   }
 
-  if (tempSet <= 0.0) {
-    tempSet = 70.0;
+  void send(String line) {
+    if (!shouldSend()) {
+      return;
+    }
+
+    lastSendMs = millis();
+
+    if (WiFi.softAPgetStationNum() == 0) {
+      pauseUntilMs = millis() + TELEMETRY_FAIL_PAUSE_MS;
+      return;
+    }
+
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.setTimeout(httpTimeoutMs);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int code = http.POST("line=" + encode(line));
+    http.end();
+
+    if (code >= 200 && code < 300) {
+      failCounter = 0;
+      pauseUntilMs = 0;
+      return;
+    }
+
+    failCounter++;
+    pauseUntilMs = millis() + TELEMETRY_FAIL_PAUSE_MS;
   }
 
-  startIConst(currentSet, vminSet, timeSet, tempSet);
-  sendDataJson();
-}
+  String buildLine(String timestamp, String eventName, String infoText, Sensors &sensors, LoadController &load) {
+    String line = "";
 
-// Обрабатывает запуск режима P = const.
-void handleStartP() {
-  updateClientTimeFromArgs();
+    line += timestamp;
+    line += ",";
+    line += eventName;
+    line += ",";
+    line += String(sensors.getCurrentA(), 3);
+    line += ",";
+    line += String(sensors.getVoltageV(), 2);
+    line += ",";
+    line += String(sensors.getPowerW(), 1);
+    line += ",";
+    line += String(sensors.getTemperatureC(), 1);
+    line += ",";
+    line += String(load.getPwm());
+    line += ",";
+    line += String(load.getElapsedSec());
+    line += ",";
+    line += load.getModeCode();
+    line += ",";
+    line += infoText;
 
-  float powerSet = server.arg("p").toFloat();
-  float imaxSet = server.arg("imax").toFloat();
-  float vminSet = server.arg("vmin").toFloat();
-  int timeSet = server.arg("time").toInt();
-  float tempSet = server.arg("temp").toFloat();
-
-  if (powerSet <= 0.0) {
-    powerSet = 10.0;
+    return line;
   }
 
-  if (imaxSet <= 0.0) {
-    imaxSet = 1.0;
+  void sendPeriodic(Sensors &sensors, LoadController &load, String timestamp) {
+    String eventName;
+
+    if (load.isRunning()) {
+      eventName = "DATA";
+    } else if (load.hasAlarm()) {
+      eventName = "ERROR_STATE";
+    } else {
+      eventName = "IDLE";
+    }
+
+    String line = buildLine(timestamp, eventName, "", sensors, load);
+    send(line);
+
+    if (millis() - lastSerialLogMs < LOG_PERIOD_MS) {
+      return;
+    }
+
+    lastSerialLogMs = millis();
+    Serial.println(line);
   }
 
-  if (vminSet < 0.0) {
-    vminSet = 0.0;
+  void setEnabled(bool value) {
+    enabled = value;
   }
 
-  if (timeSet <= 0) {
-    timeSet = 300;
+  void setServerUrl(const char *url) {
+    serverUrl = url;
   }
 
-  if (timeSet > 86400) {
-    timeSet = 86400;
+  void setPeriodMs(unsigned long value) {
+    sendPeriodMs = value;
   }
+};
 
-  if (tempSet <= 0.0) {
-    tempSet = 70.0;
-  }
+Sensors smartSensors;
+LoadController smartLoad;
+HttpInterface smartHttp;
+TelemetryClient smartTelemetry;
 
-  startPConst(powerSet, imaxSet, vminSet, timeSet, tempSet);
-  sendDataJson();
-}
-
-// Обрабатывает команды остановки, аварии и сброса.
-void handleCommand() {
-  updateClientTimeFromArgs();
-
-  String action = server.arg("act");
-
-  if (action == "off") {
-    finishTest();
-  }
-
-  else if (action == "estop") {
-    emergencyStop();
-  }
-
-  else if (action == "reset") {
-    resetAlarm();
-  }
-
-  sendDataJson();
-}
-
-// Отвечает на неизвестные HTTP-адреса.
-void handleNotFound() {
-  server.send(404, "text/plain; charset=UTF-8", "Not found");
-}
-
-// =====================================================
-// Инициализация
-// =====================================================
-
-// Настраивает пины и безопасное состояние выходов.
-void initPins() {
-  pinMode(LED_STATUS_PIN, OUTPUT);
-  digitalWrite(LED_STATUS_PIN, LOW);
-
-  initPwm();
-
-  disableLoad();
-  setFanPwm(0);
-}
-
-// Настраивает ADC и выполняет первичную калибровку нуля.
-void initAdc() {
-  analogReadResolution(12);
-
-  analogSetPinAttenuation(ADC_CURRENT_P_PIN, ADC_11db);
-  analogSetPinAttenuation(ADC_CURRENT_N_PIN, ADC_11db);
-  analogSetPinAttenuation(ADC_VOLTAGE_PIN, ADC_11db);
-
-  delay(300);
-
-  calibrateCurrentZero();
-
-  Serial.print("Voltage K = ");
-  Serial.println(getVoltageK(), 4);
-}
-
-// Поднимает точку доступа и HTTP-сервер ESP32.
-void initWifiAndServer() {
-  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print("Wi-Fi name: ");
-  Serial.println(WIFI_SSID);
-
-  Serial.print("Wi-Fi password: ");
-  Serial.println(WIFI_PASSWORD);
-
-  Serial.print("IP address: ");
-  Serial.println(WiFi.softAPIP());
-
-  server.on("/", handleRoot);
-  server.on("/data", handleData);
-  server.on("/clienttime", handleClientTime);
-  server.on("/start", handleStart);
-  server.on("/startp", handleStartP);
-  server.on("/cmd", handleCommand);
-  server.onNotFound(handleNotFound);
-
-  server.begin();
-
-  Serial.println("Web server started");
-}
-
-// =====================================================
-// Setup / loop
-// =====================================================
-
-// Точка входа Arduino: старт системы.
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -1697,26 +1706,54 @@ void setup() {
   Serial.println("Starting SmartLoad ESP32 version 1.4.2...");
   Serial.println("timestamp,event,current_A,voltage_V,power_W,temp_C,pwm,elapsed_s,mode,info");
 
-  initPins();
-  initAdc();
-  initWifiAndServer();
+  pinMode(LED_STATUS_PIN, OUTPUT);
+  digitalWrite(LED_STATUS_PIN, LOW);
+
+  smartLoad.begin();
+  smartSensors.begin();
+  smartTelemetry.begin();
+
+  delay(300);
+
+  if (smartSensors.calibrateCurrentZero()) {
+    Serial.print("ZERO OK. ZeroDiff raw = ");
+    Serial.println(smartSensors.getCurrentZeroRaw());
+  } else {
+    smartLoad.setMessage("Первичная калибровка нуля не выполнена");
+    Serial.println("ZERO FAILED ON STARTUP");
+  }
+
+  Serial.print("Voltage K = ");
+  Serial.println(smartSensors.getVoltageDividerK(), 4);
+
+  smartHttp.begin(server, smartSensors, smartLoad);
 
   Serial.println("System ready");
 }
 
-// Главный цикл Arduino.
 void loop() {
-  server.handleClient();
+  smartHttp.update();
 
   if (millis() - lastSensorMs >= SENSOR_PERIOD_MS) {
     lastSensorMs = millis();
-    readSensors();
+    smartSensors.update();
   }
 
-  processStand();
-  writePeriodicTelemetry();
+  if (millis() - lastControlMs >= CONTROL_PERIOD_MS) {
+    lastControlMs = millis();
+    smartLoad.update(
+      smartSensors.getCurrentA(),
+      smartSensors.getVoltageV(),
+      smartSensors.getPowerW(),
+      smartSensors.getTemperatureC()
+    );
+  } else {
+    smartLoad.updateFan(smartSensors.getTemperatureC());
+  }
 
-  digitalWrite(LED_STATUS_PIN, isWorkMode() ? HIGH : LOW);
+  smartTelemetry.sendPeriodic(smartSensors, smartLoad, smartHttp.getTimestamp());
+
+  digitalWrite(LED_STATUS_PIN, smartLoad.isRunning() ? HIGH : LOW);
 
   delay(2);
 }
