@@ -1720,3 +1720,794 @@ void loop() {
 
   delay(2);
 }
+
+class Sensors {
+private:
+  uint8_t currentNPin;
+  uint8_t currentPPin;
+  uint8_t voltageNPin;
+  uint8_t voltagePPin;
+  uint8_t tempPin;
+
+  OneWire oneWire;
+
+  float currentScale;
+  float zeroDiffRaw;
+  float voltageZeroDiffRaw;
+  float filterK;
+
+  float instantCurrent;
+  float instantVoltage;
+  float filteredCurrent;
+  float filteredVoltage;
+  float measuredCurrent;
+  float measuredVoltage;
+  float measuredPower;
+  float measuredTemp;
+
+  bool filterIsReady;
+  bool tempRequestIsStarted;
+  unsigned long tempRequestStartMs;
+
+  float voltageDividerK() {
+    return (VOLTAGE_R_TOP + VOLTAGE_R_BOTTOM) / VOLTAGE_R_BOTTOM;
+  }
+
+  float readAnalogAverage(uint8_t pin) {
+    long sum = 0;
+
+    for (int i = 0; i < 16; i++) {
+      sum += analogRead(pin);
+      delayMicroseconds(50);
+    }
+
+    return sum / 16.0;
+  }
+
+  void updateTemperature() {
+    if (!tempRequestIsStarted) {
+      if (oneWire.reset()) {
+        oneWire.write(0xCC);
+        oneWire.write(0x44);
+        tempRequestIsStarted = true;
+        tempRequestStartMs = millis();
+      }
+
+      return;
+    }
+
+    if (millis() - tempRequestStartMs < 800) {
+      return;
+    }
+
+    byte dataTemp[9];
+
+    if (oneWire.reset()) {
+      oneWire.write(0xCC);
+      oneWire.write(0xBE);
+
+      for (int i = 0; i < 9; i++) {
+        dataTemp[i] = oneWire.read();
+      }
+
+      if (OneWire::crc8(dataTemp, 8) == dataTemp[8]) {
+        int16_t rawTemp = (dataTemp[1] << 8) | dataTemp[0];
+        float temp = rawTemp * 0.0625;
+
+        if (temp > -55.0 && temp < 125.0) {
+          measuredTemp = temp;
+        }
+      }
+    }
+
+    tempRequestIsStarted = false;
+  }
+
+public:
+  Sensors() :
+    currentNPin(ADC_CURRENT_N_PIN),
+    currentPPin(ADC_CURRENT_P_PIN),
+    voltageNPin(ADC_CURRENT_N_PIN),
+    voltagePPin(ADC_VOLTAGE_PIN),
+    tempPin(TEMP_ONEWIRE_PIN),
+    oneWire(TEMP_ONEWIRE_PIN),
+    currentScale(currentK),
+    zeroDiffRaw(0.0),
+    voltageZeroDiffRaw(0.0),
+    filterK(FILTER_K),
+    instantCurrent(0.0),
+    instantVoltage(0.0),
+    filteredCurrent(0.0),
+    filteredVoltage(0.0),
+    measuredCurrent(0.0),
+    measuredVoltage(0.0),
+    measuredPower(0.0),
+    measuredTemp(-125.0),
+    filterIsReady(false),
+    tempRequestIsStarted(false),
+    tempRequestStartMs(0) {
+  }
+
+  void begin() {
+    analogReadResolution(12);
+
+    analogSetPinAttenuation(currentPPin, ADC_11db);
+    analogSetPinAttenuation(currentNPin, ADC_11db);
+    analogSetPinAttenuation(voltagePPin, ADC_11db);
+    analogSetPinAttenuation(voltageNPin, ADC_11db);
+  }
+
+  bool calibrateCurrentZero() {
+    float sum = 0.0;
+    float minDiff = 1000000.0;
+    float maxDiff = -1000000.0;
+
+    for (int i = 0; i < CURRENT_ZERO_SAMPLES; i++) {
+      float rawP = readAnalogAverage(currentPPin);
+      float rawN = readAnalogAverage(currentNPin);
+
+      float diff = rawP - rawN;
+
+#if CURRENT_DIFF_INVERTED
+      diff = -diff;
+#endif
+
+      sum += diff;
+
+      if (diff < minDiff) {
+        minDiff = diff;
+      }
+
+      if (diff > maxDiff) {
+        maxDiff = diff;
+      }
+
+      delay(10);
+    }
+
+    float spread = maxDiff - minDiff;
+
+    if (spread > CURRENT_ZERO_STABILITY_RAW) {
+      return false;
+    }
+
+    zeroDiffRaw = sum / CURRENT_ZERO_SAMPLES;
+    resetFilter();
+
+    return true;
+  }
+
+  void update() {
+    float rawP = readAnalogAverage(currentPPin);
+    float rawN = readAnalogAverage(currentNPin);
+
+    float currentDiffRaw = rawP - rawN;
+
+#if CURRENT_DIFF_INVERTED
+    currentDiffRaw = -currentDiffRaw;
+#endif
+
+    instantCurrent = (currentDiffRaw - zeroDiffRaw) * currentScale;
+
+    if (instantCurrent < CURRENT_DEAD_ZONE_A) {
+      instantCurrent = 0.0;
+    }
+
+    float rawVoltageP = readAnalogAverage(voltagePPin);
+    float rawVoltageN = readAnalogAverage(voltageNPin);
+    float voltageDiffRaw = rawVoltageP - rawVoltageN;
+    float adcVoltage = (voltageDiffRaw - voltageZeroDiffRaw) * ADC_REF_VOLTAGE / ADC_MAX_VALUE;
+
+    instantVoltage = adcVoltage * voltageDividerK();
+
+    if (instantVoltage < VOLTAGE_DEAD_ZONE_V) {
+      instantVoltage = 0.0;
+    }
+
+    if (!filterIsReady) {
+      filteredCurrent = instantCurrent;
+      filteredVoltage = instantVoltage;
+      filterIsReady = true;
+    } else {
+      filteredCurrent = filteredCurrent + filterK * (instantCurrent - filteredCurrent);
+      filteredVoltage = filteredVoltage + filterK * (instantVoltage - filteredVoltage);
+    }
+
+    measuredCurrent = filteredCurrent;
+    measuredVoltage = filteredVoltage;
+    measuredPower = measuredVoltage * measuredCurrent;
+
+    updateTemperature();
+  }
+
+  void resetFilter() {
+    instantCurrent = 0.0;
+    instantVoltage = 0.0;
+    filteredCurrent = 0.0;
+    filteredVoltage = 0.0;
+    measuredCurrent = 0.0;
+    measuredVoltage = 0.0;
+    measuredPower = 0.0;
+    filterIsReady = false;
+  }
+
+  void setCurrentScale(float value) {
+    currentScale = value;
+  }
+
+  void setCurrentZeroRaw(float value) {
+    zeroDiffRaw = value;
+    resetFilter();
+  }
+
+  void setVoltageZeroRaw(float value) {
+    voltageZeroDiffRaw = value;
+    resetFilter();
+  }
+
+  void setVoltagePins(uint8_t positivePin, uint8_t negativePin) {
+    voltagePPin = positivePin;
+    voltageNPin = negativePin;
+
+    analogSetPinAttenuation(voltagePPin, ADC_11db);
+    analogSetPinAttenuation(voltageNPin, ADC_11db);
+    resetFilter();
+  }
+
+  float getCurrentA() {
+    return measuredCurrent;
+  }
+
+  float getVoltageV() {
+    return measuredVoltage;
+  }
+
+  float getPowerW() {
+    return measuredPower;
+  }
+
+  float getTemperatureC() {
+    return measuredTemp;
+  }
+
+  float getInstantCurrentA() {
+    return instantCurrent;
+  }
+
+  float getInstantVoltageV() {
+    return instantVoltage;
+  }
+
+  float getCurrentZeroRaw() {
+    return zeroDiffRaw;
+  }
+};
+
+class LoadController {
+private:
+  enum ControllerMode {
+    CTRL_WAITING,
+    CTRL_I_CONST,
+    CTRL_P_CONST,
+    CTRL_ERROR
+  };
+
+  ControllerMode workMode;
+
+  float targetCurrentA;
+  float targetPowerW;
+  float currentLimitA;
+  float voltageLimitV;
+  float temperatureLimitC;
+
+  float pwmCurrent;
+  int pwmOutput;
+
+  float currentKp;
+  float currentKi;
+  float powerKp;
+  float powerKi;
+
+  float currentLastError;
+  float powerLastError;
+
+  int durationSec;
+  unsigned long startMs;
+  unsigned long finishedElapsedSec;
+
+  bool alarmIsActive;
+  String alarmText;
+
+  float limitFloat(float value, float minValue, float maxValue) {
+    if (value < minValue) {
+      return minValue;
+    }
+
+    if (value > maxValue) {
+      return maxValue;
+    }
+
+    return value;
+  }
+
+  void writeLoadPwm(int value) {
+    pwmOutput = constrain(value, PWM_MIN, PWM_MAX);
+
+    int output = pwmOutput;
+
+#if PWM_INVERTED
+    output = PWM_MAX - output;
+#endif
+
+#if ENABLE_LOAD_OUTPUT
+    ledcWrite(LOAD_PWM_PIN, output);
+#else
+    ledcWrite(LOAD_PWM_PIN, 0);
+#endif
+  }
+
+  float calculateIncrementalPi(float setpoint, float measured, float kp, float ki, float &lastError, float dt) {
+    float error = setpoint - measured;
+    float deltaP = kp * (error - lastError);
+    float deltaI = ki * error * dt;
+
+    lastError = error;
+
+    float delta = deltaP + deltaI;
+
+    if (delta > PWM_STEP_UP_MAX) {
+      delta = PWM_STEP_UP_MAX;
+    }
+
+    if (delta < -PWM_STEP_DOWN_MAX) {
+      delta = -PWM_STEP_DOWN_MAX;
+    }
+
+    return delta;
+  }
+
+  void resetRegulators() {
+    currentLastError = 0.0;
+    powerLastError = 0.0;
+  }
+
+  void setAlarm(String text) {
+    alarmIsActive = true;
+    alarmText = text;
+    workMode = CTRL_ERROR;
+    stopOutput();
+  }
+
+  void stopOutput() {
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
+  }
+
+public:
+  LoadController() :
+    workMode(CTRL_WAITING),
+    targetCurrentA(1.0),
+    targetPowerW(10.0),
+    currentLimitA(1.0),
+    voltageLimitV(0.0),
+    temperatureLimitC(70.0),
+    pwmCurrent(0.0),
+    pwmOutput(0),
+    currentKp(kpI),
+    currentKi(kiI),
+    powerKp(kpP),
+    powerKi(kiP),
+    currentLastError(0.0),
+    powerLastError(0.0),
+    durationSec(300),
+    startMs(0),
+    finishedElapsedSec(0),
+    alarmIsActive(false),
+    alarmText("") {
+  }
+
+  void begin() {
+    ledcAttach(LOAD_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+    stopOutput();
+  }
+
+  void update(float currentA, float voltageV, float powerW, float temperatureC) {
+    if (!isRunning()) {
+      return;
+    }
+
+    if (durationSec > 0 && getElapsedSec() >= (unsigned long)durationSec) {
+      stop();
+      return;
+    }
+
+#if ENABLE_VOLTAGE_PROTECTION
+    if (voltageLimitV > 0.0 && voltageV < voltageLimitV) {
+      setAlarm("LOW_VOLTAGE");
+      return;
+    }
+#endif
+
+    if (temperatureC > temperatureLimitC) {
+      setAlarm("OVER_TEMPERATURE");
+      return;
+    }
+
+    if (workMode == CTRL_I_CONST) {
+      if (currentA > targetCurrentA * OVER_CURRENT_FACTOR && currentA > 1.0) {
+        setAlarm("OVER_CURRENT");
+        return;
+      }
+
+      float dt = CONTROL_PERIOD_MS / 1000.0;
+      pwmCurrent += calculateIncrementalPi(targetCurrentA, currentA, currentKp, currentKi, currentLastError, dt);
+      pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+      writeLoadPwm((int)pwmCurrent);
+    }
+
+    if (workMode == CTRL_P_CONST) {
+      if (currentA > currentLimitA) {
+        setAlarm("OVER_CURRENT");
+        return;
+      }
+
+      float dt = CONTROL_PERIOD_MS / 1000.0;
+      pwmCurrent += calculateIncrementalPi(targetPowerW, powerW, powerKp, powerKi, powerLastError, dt);
+      pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+      writeLoadPwm((int)pwmCurrent);
+    }
+  }
+
+  bool startIConst(float currentSet, float voltageMin, int timeSec, float temperatureMax) {
+    if (alarmIsActive || isRunning()) {
+      return false;
+    }
+
+    targetCurrentA = currentSet;
+    voltageLimitV = voltageMin;
+    durationSec = timeSec;
+    temperatureLimitC = temperatureMax;
+    finishedElapsedSec = 0;
+    startMs = millis();
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
+    workMode = CTRL_I_CONST;
+
+    return true;
+  }
+
+  bool startPConst(float powerSet, float currentMax, float voltageMin, int timeSec, float temperatureMax) {
+    if (alarmIsActive || isRunning()) {
+      return false;
+    }
+
+    targetPowerW = powerSet;
+    currentLimitA = currentMax;
+    voltageLimitV = voltageMin;
+    durationSec = timeSec;
+    temperatureLimitC = temperatureMax;
+    finishedElapsedSec = 0;
+    startMs = millis();
+    pwmCurrent = 0.0;
+    resetRegulators();
+    writeLoadPwm(0);
+    workMode = CTRL_P_CONST;
+
+    return true;
+  }
+
+  void stop() {
+    finishedElapsedSec = getElapsedSec();
+    stopOutput();
+    workMode = CTRL_WAITING;
+  }
+
+  void emergencyStop() {
+    setAlarm("EMERGENCY_STOP");
+  }
+
+  void resetAlarm() {
+    if (!alarmIsActive) {
+      return;
+    }
+
+    alarmIsActive = false;
+    alarmText = "";
+    workMode = CTRL_WAITING;
+    stopOutput();
+  }
+
+  bool isRunning() {
+    return workMode == CTRL_I_CONST || workMode == CTRL_P_CONST;
+  }
+
+  bool hasAlarm() {
+    return alarmIsActive;
+  }
+
+  int getPwm() {
+    return pwmOutput;
+  }
+
+  unsigned long getElapsedSec() {
+    if (isRunning()) {
+      return (millis() - startMs) / 1000UL;
+    }
+
+    return finishedElapsedSec;
+  }
+
+  String getModeText() {
+    if (workMode == CTRL_I_CONST) {
+      return "I = const";
+    }
+
+    if (workMode == CTRL_P_CONST) {
+      return "P = const";
+    }
+
+    if (workMode == CTRL_ERROR) {
+      return "Авария";
+    }
+
+    return "Ожидание";
+  }
+
+  String getAlarmText() {
+    return alarmText;
+  }
+};
+
+class HttpInterface {
+private:
+  WebServer *web;
+  Sensors *sensorSource;
+  LoadController *loadController;
+
+  String escapeJson(String text) {
+    text.replace("\\", "\\\\");
+    text.replace("\"", "\\\"");
+    text.replace("\n", " ");
+    text.replace("\r", " ");
+
+    return text;
+  }
+
+  String buildDataJson() {
+    String json = "{";
+
+    json += "\"current\":";
+    json += String(sensorSource->getCurrentA(), 3);
+    json += ",";
+
+    json += "\"voltage\":";
+    json += String(sensorSource->getVoltageV(), 2);
+    json += ",";
+
+    json += "\"power\":";
+    json += String(sensorSource->getPowerW(), 1);
+    json += ",";
+
+    json += "\"temp\":";
+    json += String(sensorSource->getTemperatureC(), 1);
+    json += ",";
+
+    json += "\"pwm\":";
+    json += String(loadController->getPwm());
+    json += ",";
+
+    json += "\"elapsed\":";
+    json += String(loadController->getElapsedSec());
+    json += ",";
+
+    json += "\"modeText\":\"";
+    json += escapeJson(loadController->getModeText());
+    json += "\",";
+
+    json += "\"alarm\":";
+    json += loadController->hasAlarm() ? "true" : "false";
+    json += ",";
+
+    json += "\"message\":\"";
+    json += escapeJson(loadController->getAlarmText());
+    json += "\"";
+
+    json += "}";
+
+    return json;
+  }
+
+  void sendJson() {
+    if (web == nullptr || sensorSource == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    web->send(200, "application/json; charset=UTF-8", buildDataJson());
+  }
+
+  void handleData() {
+    sendJson();
+  }
+
+  void handleStartI() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    float currentSet = web->arg("i").toFloat();
+    float voltageMin = web->arg("vmin").toFloat();
+    int timeSec = web->arg("time").toInt();
+    float temperatureMax = web->arg("temp").toFloat();
+
+    loadController->startIConst(currentSet, voltageMin, timeSec, temperatureMax);
+    sendJson();
+  }
+
+  void handleStartP() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    float powerSet = web->arg("p").toFloat();
+    float currentMax = web->arg("imax").toFloat();
+    float voltageMin = web->arg("vmin").toFloat();
+    int timeSec = web->arg("time").toInt();
+    float temperatureMax = web->arg("temp").toFloat();
+
+    loadController->startPConst(powerSet, currentMax, voltageMin, timeSec, temperatureMax);
+    sendJson();
+  }
+
+  void handleCommand() {
+    if (web == nullptr || loadController == nullptr) {
+      return;
+    }
+
+    String action = web->arg("act");
+
+    if (action == "off") {
+      loadController->stop();
+    } else if (action == "estop") {
+      loadController->emergencyStop();
+    } else if (action == "reset") {
+      loadController->resetAlarm();
+    }
+
+    sendJson();
+  }
+
+  void handleNotFound() {
+    if (web == nullptr) {
+      return;
+    }
+
+    web->send(404, "text/plain; charset=UTF-8", "Not found");
+  }
+
+public:
+  HttpInterface() :
+    web(nullptr),
+    sensorSource(nullptr),
+    loadController(nullptr) {
+  }
+
+  void begin(WebServer &serverRef, Sensors &sensorsRef, LoadController &controllerRef) {
+    web = &serverRef;
+    sensorSource = &sensorsRef;
+    loadController = &controllerRef;
+
+    web->on("/data", [this]() {
+      handleData();
+    });
+
+    web->on("/start", [this]() {
+      handleStartI();
+    });
+
+    web->on("/startp", [this]() {
+      handleStartP();
+    });
+
+    web->on("/cmd", [this]() {
+      handleCommand();
+    });
+
+    web->onNotFound([this]() {
+      handleNotFound();
+    });
+  }
+
+  void update() {
+    if (web != nullptr) {
+      web->handleClient();
+    }
+  }
+};
+
+class TelemetryClient {
+private:
+  const char *serverUrl;
+  unsigned long sendPeriodMs;
+  unsigned long httpTimeoutMs;
+  unsigned long lastSendMs;
+  bool enabled;
+
+  String encode(String value) {
+    String encoded = "";
+    const char *hex = "0123456789ABCDEF";
+
+    for (unsigned int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+
+      if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+        encoded += c;
+      } else if (c == ' ') {
+        encoded += '+';
+      } else {
+        encoded += '%';
+        encoded += hex[(c >> 4) & 0x0F];
+        encoded += hex[c & 0x0F];
+      }
+    }
+
+    return encoded;
+  }
+
+public:
+  TelemetryClient() :
+    serverUrl(TELEMETRY_SERVER_URL),
+    sendPeriodMs(TELEMETRY_PERIOD_MS),
+    httpTimeoutMs(TELEMETRY_HTTP_TIMEOUT_MS),
+    lastSendMs(0),
+    enabled(ENABLE_HTTP_TELEMETRY) {
+  }
+
+  void begin() {
+    lastSendMs = 0;
+  }
+
+  bool shouldSend() {
+    if (!enabled) {
+      return false;
+    }
+
+    if (millis() - lastSendMs < sendPeriodMs) {
+      return false;
+    }
+
+    return true;
+  }
+
+  void send(String line) {
+    if (!shouldSend()) {
+      return;
+    }
+
+    lastSendMs = millis();
+
+    if (WiFi.softAPgetStationNum() == 0) {
+      return;
+    }
+
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.setTimeout(httpTimeoutMs);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.POST("line=" + encode(line));
+    http.end();
+  }
+
+  void setEnabled(bool value) {
+    enabled = value;
+  }
+
+  void setServerUrl(const char *url) {
+    serverUrl = url;
+  }
+
+  void setPeriodMs(unsigned long value) {
+    sendPeriodMs = value;
+  }
+};
