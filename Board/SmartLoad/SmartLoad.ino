@@ -2,10 +2,10 @@
 #include <WebServer.h>
 
 #include "config.h"
-#include "libraries/Sensors/Sensors.h"
-#include "libraries/LoadController/LoadController.h"
-#include "libraries/HttpInterface/HttpInterface.h"
-#include "libraries/TelemetryClient/TelemetryClient.h"
+#include <Sensors.h>
+#include <LoadController.h>
+#include <HttpInterface.h>
+#include <TelemetryClient.h>
 
 WebServer server(80);
 

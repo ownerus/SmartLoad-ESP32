@@ -86,16 +86,16 @@
 #define VOLTAGE_R_BOTTOM    10000.0
 
 // Коэффициент пересчёта тока: 24.39 А/В * 3.3 В / 4095.
-float currentK = 0.01965;
+#define CURRENT_K 0.01965
 
 // PI-регулятор тока для режима I = const.
 // Мягкие стартовые коэффициенты для первого запуска.
-float kpI = 0.8;       // P-часть: реакция на изменение ошибки
-float kiI = 1.5;       // I-часть: постепенное дотягивание тока
+#define KP_I 0.8       // P-часть: реакция на изменение ошибки
+#define KI_I 1.5       // I-часть: постепенное дотягивание тока
 
 // PI-регулятор мощности для режима P = const.
-float kpP = 0.03;
-float kiP = 0.08;
+#define KP_P 0.03
+#define KI_P 0.08
 
 // Если CurrentSensorP и CurrentSensorN фактически перепутаны, поставить 1.
 #define CURRENT_DIFF_INVERTED       0
