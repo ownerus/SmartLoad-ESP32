@@ -33,7 +33,6 @@ body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:14px}
 .mode-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .mode-name{font-size:20px;font-weight:800}
 .mode-code{font-size:16px;color:#9eacc0}
-.mode-desc{font-size:15px;color:#c7d2e1;line-height:1.45;margin-bottom:12px}
 button{width:100%;border:none;border-radius:14px;padding:14px 12px;font-size:18px;font-weight:800;cursor:pointer;color:#fff}
 button:active{transform:scale(.99)}
 button:disabled{cursor:not-allowed;transform:none;opacity:.62}
@@ -110,9 +109,6 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
           <div class="mode-name">Стабилизация тока</div>
           <div class="mode-code">I = const</div>
         </div>
-        <div class="mode-desc">
-          Настройка тока, минимального напряжения, времени испытания и температуры.
-        </div>
         <button class="btn-main" onclick="openSettings()">Настроить</button>
       </div>
 
@@ -121,10 +117,15 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
           <div class="mode-name">Стабилизация мощности</div>
           <div class="mode-code">P = const</div>
         </div>
-        <div class="mode-desc">
-          Настройка мощности, максимального тока, минимального напряжения, времени испытания и температуры.
-        </div>
         <button class="btn-main" onclick="openPowerSettings()">Настроить</button>
+      </div>
+
+      <div class="mode-item">
+        <div class="mode-top">
+          <div class="mode-name">PI-регулятор</div>
+          <div class="mode-code">debug</div>
+        </div>
+        <button class="btn-neutral" onclick="location.href='/debug'">Коэффициенты и шаг PWM</button>
       </div>
     </div>
   </div>
@@ -270,11 +271,33 @@ function syncClientTime(){
     .catch(e => console.log(e));
 }
 
+let dataRequestBusy = false;
+let dataRefreshTimer = null;
+
+function scheduleDataUpdate(delayMs){
+  if (dataRefreshTimer) {
+    clearTimeout(dataRefreshTimer);
+  }
+
+  dataRefreshTimer = setTimeout(getData, delayMs);
+}
+
 function getData(){
+  if (dataRequestBusy) {
+    scheduleDataUpdate(1000);
+    return;
+  }
+
+  dataRequestBusy = true;
+
   fetch('/data')
     .then(r => r.json())
     .then(d => updatePage(d))
-    .catch(e => console.log(e));
+    .catch(e => console.log(e))
+    .finally(() => {
+      dataRequestBusy = false;
+      scheduleDataUpdate(1000);
+    });
 }
 
 function sendCommand(action){
@@ -411,13 +434,186 @@ function confirmEmergency(){
     .finally(() => setButtonBusy('confirmEmergencyButton', false));
 }
 
-setInterval(getData, 1000);
 setInterval(syncClientTime, 10000);
 
 window.onload = function(){
   syncClientTime();
   getData();
 };
+</script>
+</body>
+</html>
+)rawliteral";
+
+const char DEBUG_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMARTLOAD ESP32 DEBUG</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:14px}
+.wrapper{width:100%;max-width:760px;margin:0 auto}
+.card{background:#1a212b;border:1px solid #2d3746;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.title{font-size:28px;font-weight:800;letter-spacing:.3px}
+.back{color:#9db5d4;text-decoration:none;font-weight:800}
+.section-title{font-size:22px;font-weight:800;margin-bottom:14px;color:#dfe8f7}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{background:#121820;border:1px solid #2b3443;border-radius:14px;padding:14px}
+label{display:block;font-size:16px;font-weight:800;margin-bottom:6px;color:#fff}
+.hint{min-height:38px;color:#9eacc0;font-size:14px;line-height:1.35;margin-bottom:10px}
+input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;background:#0f151d;color:#fff;font-size:18px}
+button{width:100%;border:none;border-radius:14px;padding:14px 12px;font-size:18px;font-weight:800;cursor:pointer;color:#fff}
+button:active{transform:scale(.99)}
+.btn-main{background:#188a47}
+.btn-neutral{background:#596273}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.message{display:none;background:#121820;border:1px solid #334054;border-radius:14px;padding:12px;color:#dbe5f4;font-size:15px;line-height:1.35;margin-bottom:14px}
+@media(max-width:640px){
+  .title{font-size:24px}
+  .field-grid{grid-template-columns:1fr}
+  .actions{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="card">
+    <div class="header">
+      <div class="title">Настройки PI-регулятора</div>
+      <a class="back" href="/">Назад</a>
+    </div>
+  </div>
+
+  <div id="messageBox" class="message"></div>
+
+  <div class="card">
+    <div class="section-title">I = const</div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="kpI">kpI</label>
+        <div class="hint">P-часть тока: реагирует на изменение ошибки и помогает быстрее подойти к заданному току.</div>
+        <input id="kpI" type="number" step="0.01" min="0">
+      </div>
+      <div class="field">
+        <label for="kiI">kiI</label>
+        <div class="hint">I-часть тока: постепенно дотягивает PWM, пока ток отличается от заданного.</div>
+        <input id="kiI" type="number" step="0.01" min="0">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">P = const</div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="kpP">kpP</label>
+        <div class="hint">P-часть мощности: реагирует на изменение ошибки по мощности.</div>
+        <input id="kpP" type="number" step="0.001" min="0">
+      </div>
+      <div class="field">
+        <label for="kiP">kiP</label>
+        <div class="hint">I-часть мощности: плавно дотягивает нагрузку до заданной мощности.</div>
+        <input id="kiP" type="number" step="0.001" min="0">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Ограничение изменения PWM</div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="stepUp">PWM_STEP_UP_MAX</label>
+        <div class="hint">Максимальный шаг роста PWM за один цикл управления. Ограничивает резкое открытие MOSFET.</div>
+        <input id="stepUp" type="number" step="0.1" min="0.01">
+      </div>
+      <div class="field">
+        <label for="stepDown">PWM_STEP_DOWN_MAX</label>
+        <div class="hint">Максимальный шаг снижения PWM за один цикл. Позволяет быстрее уменьшать ток при превышении.</div>
+        <input id="stepDown" type="number" step="0.1" min="0.01">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Вентилятор</div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="fanOnTemp">Температура включения, °C</label>
+        <div class="hint">При этой температуре вентилятор включается на максимум. Выключение остаётся по FAN_OFF_TEMP_C из config.h.</div>
+        <input id="fanOnTemp" type="number" step="1" min="0" max="120">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="actions">
+      <button class="btn-main" onclick="saveDebug()">Применить</button>
+      <button class="btn-neutral" onclick="resetDebug()">Сбросить к config.h</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function setMessage(text){
+  let box = document.getElementById('messageBox');
+  box.innerText = text;
+  box.style.display = text ? 'block' : 'none';
+}
+
+function setValues(data){
+  document.getElementById('kpI').value = Number(data.kpI).toFixed(3);
+  document.getElementById('kiI').value = Number(data.kiI).toFixed(3);
+  document.getElementById('kpP').value = Number(data.kpP).toFixed(4);
+  document.getElementById('kiP').value = Number(data.kiP).toFixed(4);
+  document.getElementById('stepUp').value = Number(data.stepUp).toFixed(2);
+  document.getElementById('stepDown').value = Number(data.stepDown).toFixed(2);
+  document.getElementById('fanOnTemp').value = Number(data.fanOnTemp).toFixed(1);
+}
+
+function loadDebug(){
+  fetch('/debugdata')
+    .then(r => r.json())
+    .then(d => setValues(d))
+    .catch(e => setMessage('Не удалось загрузить настройки'));
+}
+
+function valueParam(id){
+  return encodeURIComponent(document.getElementById(id).value);
+}
+
+function saveDebug(){
+  let url = '/debugsave?kpI=' + valueParam('kpI') +
+            '&kiI=' + valueParam('kiI') +
+            '&kpP=' + valueParam('kpP') +
+            '&kiP=' + valueParam('kiP') +
+            '&stepUp=' + valueParam('stepUp') +
+            '&stepDown=' + valueParam('stepDown') +
+            '&fanOnTemp=' + valueParam('fanOnTemp');
+
+  fetch(url)
+    .then(r => r.json())
+    .then(d => {
+      setValues(d);
+      setMessage('Настройки применены. После перезагрузки вернутся значения из config.h.');
+    })
+    .catch(e => setMessage('Не удалось применить настройки'));
+}
+
+function resetDebug(){
+  fetch('/debugreset')
+    .then(r => r.json())
+    .then(d => {
+      setValues(d);
+      setMessage('Настройки сброшены к значениям из config.h.');
+    })
+    .catch(e => setMessage('Не удалось сбросить настройки'));
+}
+
+window.onload = loadDebug;
 </script>
 </body>
 </html>

@@ -1,14 +1,23 @@
 #include "TelemetryClient.h"
+#include <string.h>
+#include <Sensors.h>
+#include <LoadController.h>
+#include <HttpInterface.h>
 
 TelemetryClient::TelemetryClient() :
   serverUrl(TELEMETRY_SERVER_URL),
   sendPeriodMs(TELEMETRY_PERIOD_MS),
+  retryPeriodMs(TELEMETRY_RETRY_PERIOD_MS),
   httpTimeoutMs(TELEMETRY_HTTP_TIMEOUT_MS),
-  lastSendMs(0),
+  nextSendMs(0),
   lastSerialLogMs(0),
-  pauseUntilMs(0),
-  failCounter(0),
-  enabled(ENABLE_HTTP_TELEMETRY) {
+  enabled(ENABLE_HTTP_TELEMETRY),
+  sensors(nullptr),
+  load(nullptr),
+  http(nullptr),
+  snapshotMutex(nullptr),
+  taskHandle(nullptr) {
+  memset(&latestSnapshot, 0, sizeof(latestSnapshot));
 }
 
 String TelemetryClient::encode(String value) {
@@ -16,10 +25,10 @@ String TelemetryClient::encode(String value) {
   const char *hex = "0123456789ABCDEF";
 
   for (unsigned int i = 0; i < value.length(); i++) {
-    char c = value.charAt(i);
+    uint8_t c = (uint8_t)value.charAt(i);
 
     if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      encoded += c;
+      encoded += (char)c;
     } else if (c == ' ') {
       encoded += '+';
     } else {
@@ -33,10 +42,115 @@ String TelemetryClient::encode(String value) {
 }
 
 void TelemetryClient::begin() {
-  lastSendMs = 0;
+  nextSendMs = millis();
   lastSerialLogMs = 0;
-  pauseUntilMs = 0;
-  failCounter = 0;
+}
+
+bool TelemetryClient::begin(Sensors &sensorsRef, LoadController &loadRef, HttpInterface &httpRef) {
+  begin();
+
+  sensors = &sensorsRef;
+  load = &loadRef;
+  http = &httpRef;
+
+  snapshotMutex = xSemaphoreCreateMutex();
+
+  if (snapshotMutex == nullptr) {
+    return false;
+  }
+
+  publish();
+
+  BaseType_t result = xTaskCreatePinnedToCore(
+    taskEntry,
+    "SmartTelemetry",
+    TELEMETRY_TASK_STACK_WORDS,
+    this,
+    TELEMETRY_TASK_PRIORITY,
+    &taskHandle,
+    TELEMETRY_TASK_CORE
+  );
+
+  return result == pdPASS;
+}
+
+void TelemetryClient::publish() {
+  if (sensors == nullptr || load == nullptr || http == nullptr || snapshotMutex == nullptr) {
+    return;
+  }
+
+  String timestamp = http->getTimestamp();
+  const char *modeCode = load->getModeCode();
+
+  Snapshot snapshot;
+  snapshot.currentA = sensors->getCurrentA();
+  snapshot.voltageV = sensors->getVoltageV();
+  snapshot.powerW = sensors->getPowerW();
+  snapshot.temperatureC = sensors->getTemperatureC();
+  snapshot.pwm = load->getPwm();
+  snapshot.elapsedSec = load->getElapsedSec();
+  snapshot.isRunning = load->isRunning();
+  snapshot.hasAlarm = load->hasAlarm();
+  snapshot.ready = true;
+
+  strncpy(snapshot.modeCode, modeCode, sizeof(snapshot.modeCode) - 1);
+  snapshot.modeCode[sizeof(snapshot.modeCode) - 1] = '\0';
+  timestamp.toCharArray(snapshot.timestamp, sizeof(snapshot.timestamp));
+
+  if (xSemaphoreTake(snapshotMutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+    latestSnapshot = snapshot;
+    xSemaphoreGive(snapshotMutex);
+  }
+}
+
+bool TelemetryClient::copySnapshot(Snapshot &snapshot) {
+  if (snapshotMutex == nullptr) {
+    return false;
+  }
+
+  if (xSemaphoreTake(snapshotMutex, pdMS_TO_TICKS(5)) != pdTRUE) {
+    return false;
+  }
+
+  snapshot = latestSnapshot;
+  xSemaphoreGive(snapshotMutex);
+
+  return snapshot.ready;
+}
+
+void TelemetryClient::taskEntry(void *parameter) {
+  TelemetryClient *client = static_cast<TelemetryClient *>(parameter);
+
+  if (client != nullptr) {
+    client->runTask();
+  }
+
+  vTaskDelete(nullptr);
+}
+
+void TelemetryClient::runTask() {
+  for (;;) {
+    if (shouldSend()) {
+      Snapshot snapshot;
+
+      if (copySnapshot(snapshot)) {
+        sendSnapshot(
+          String(snapshot.timestamp),
+          snapshot.isRunning,
+          snapshot.hasAlarm,
+          snapshot.modeCode,
+          snapshot.currentA,
+          snapshot.voltageV,
+          snapshot.powerW,
+          snapshot.temperatureC,
+          snapshot.pwm,
+          snapshot.elapsedSec
+        );
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
 }
 
 bool TelemetryClient::shouldSend() {
@@ -44,11 +158,7 @@ bool TelemetryClient::shouldSend() {
     return false;
   }
 
-  if (millis() < pauseUntilMs) {
-    return false;
-  }
-
-  if (millis() - lastSendMs < sendPeriodMs) {
+  if (smartLoadTimeBefore(nextSendMs)) {
     return false;
   }
 
@@ -60,71 +170,70 @@ void TelemetryClient::send(String line) {
     return;
   }
 
-  lastSendMs = millis();
+  unsigned long nowMs = millis();
 
   if (WiFi.softAPgetStationNum() == 0) {
-    pauseUntilMs = millis() + TELEMETRY_FAIL_PAUSE_MS;
+    nextSendMs = nowMs + retryPeriodMs;
     return;
   }
 
   HTTPClient http;
   http.begin(serverUrl);
+  http.setConnectTimeout(httpTimeoutMs);
   http.setTimeout(httpTimeoutMs);
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   int code = http.POST("line=" + encode(line));
   http.end();
 
   if (code >= 200 && code < 300) {
-    failCounter = 0;
-    pauseUntilMs = 0;
+    nextSendMs = millis() + sendPeriodMs;
     return;
   }
 
-  failCounter++;
-  pauseUntilMs = millis() + TELEMETRY_FAIL_PAUSE_MS;
+  nextSendMs = millis() + retryPeriodMs;
 }
 
-String TelemetryClient::buildLine(String timestamp, String eventName, String infoText, Sensors &sensors, LoadController &load) {
+String TelemetryClient::buildLine(String timestamp, String eventName, String infoText, float currentA, float voltageV, float powerW, float temperatureC, int pwm, unsigned long elapsedSec, const char *modeCode) {
   String line = "";
 
   line += timestamp;
   line += ",";
   line += eventName;
   line += ",";
-  line += String(sensors.getCurrentA(), 3);
+  line += String(currentA, 3);
   line += ",";
-  line += String(sensors.getVoltageV(), 2);
+  line += String(voltageV, 2);
   line += ",";
-  line += String(sensors.getPowerW(), 1);
+  line += String(powerW, 1);
   line += ",";
-  line += String(sensors.getTemperatureC(), 1);
+  line += String(temperatureC, 1);
   line += ",";
-  line += String(load.getPwm());
+  line += String(pwm);
   line += ",";
-  line += String(load.getElapsedSec());
+  line += String(elapsedSec);
   line += ",";
-  line += load.getModeCode();
+  line += modeCode;
   line += ",";
   line += infoText;
 
   return line;
 }
 
-void TelemetryClient::sendPeriodic(Sensors &sensors, LoadController &load, String timestamp) {
+void TelemetryClient::sendSnapshot(String timestamp, bool isRunning, bool hasAlarm, const char *modeCode, float currentA, float voltageV, float powerW, float temperatureC, int pwm, unsigned long elapsedSec) {
   String eventName;
 
-  if (load.isRunning()) {
+  if (isRunning) {
     eventName = "DATA";
-  } else if (load.hasAlarm()) {
+  } else if (hasAlarm) {
     eventName = "ERROR_STATE";
   } else {
     eventName = "IDLE";
   }
 
-  String line = buildLine(timestamp, eventName, "", sensors, load);
+  String line = buildLine(timestamp, eventName, "", currentA, voltageV, powerW, temperatureC, pwm, elapsedSec, modeCode);
   send(line);
 
-  if (millis() - lastSerialLogMs < LOG_PERIOD_MS) {
+  if (smartLoadTimeBefore(lastSerialLogMs + LOG_PERIOD_MS)) {
     return;
   }
 
@@ -132,14 +241,3 @@ void TelemetryClient::sendPeriodic(Sensors &sensors, LoadController &load, Strin
   Serial.println(line);
 }
 
-void TelemetryClient::setEnabled(bool value) {
-  enabled = value;
-}
-
-void TelemetryClient::setServerUrl(const char *url) {
-  serverUrl = url;
-}
-
-void TelemetryClient::setPeriodMs(unsigned long value) {
-  sendPeriodMs = value;
-}

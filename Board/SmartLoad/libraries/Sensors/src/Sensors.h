@@ -47,5 +47,4 @@ public:
   float getPowerW();
   float getTemperatureC();
   float getCurrentZeroRaw();
-  float getVoltageDividerK();
 };

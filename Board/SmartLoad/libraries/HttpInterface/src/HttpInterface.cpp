@@ -12,6 +12,7 @@ HttpInterface::HttpInterface() :
 
 int64_t HttpInterface::parseInt64(const String &text) {
   int64_t value = 0;
+  const int64_t limit = 900000000000000000LL;
   bool negative = false;
   int start = 0;
 
@@ -27,7 +28,13 @@ int64_t HttpInterface::parseInt64(const String &text) {
       break;
     }
 
-    value = value * 10 + (c - '0');
+    int digit = c - '0';
+
+    if (value > (limit - digit) / 10) {
+      return negative ? -limit : limit;
+    }
+
+    value = value * 10 + digit;
   }
 
   return negative ? -value : value;
@@ -38,10 +45,20 @@ void HttpInterface::updateClientTimeFromArgs() {
     return;
   }
 
-  clientEpochMs = parseInt64(web->arg("epoch"));
+  int64_t epochMs = parseInt64(web->arg("epoch"));
+
+  if (epochMs < 0 || epochMs > 4102444800000LL) {
+    return;
+  }
+
+  clientEpochMs = epochMs;
 
   if (web->hasArg("tz")) {
     clientTzOffsetMin = web->arg("tz").toInt();
+
+    if (clientTzOffsetMin < -840 || clientTzOffsetMin > 840) {
+      clientTzOffsetMin = 0;
+    }
   }
 
   clientTimeSyncMs = millis();
@@ -105,12 +122,55 @@ String HttpInterface::buildDataJson() {
   return json;
 }
 
+String HttpInterface::buildDebugDataJson() {
+  String json = "{";
+
+  json += "\"kpI\":";
+  json += String(loadController->getCurrentKp(), 4);
+  json += ",";
+
+  json += "\"kiI\":";
+  json += String(loadController->getCurrentKi(), 4);
+  json += ",";
+
+  json += "\"kpP\":";
+  json += String(loadController->getPowerKp(), 4);
+  json += ",";
+
+  json += "\"kiP\":";
+  json += String(loadController->getPowerKi(), 4);
+  json += ",";
+
+  json += "\"stepUp\":";
+  json += String(loadController->getPwmStepUpMax(), 3);
+  json += ",";
+
+  json += "\"stepDown\":";
+  json += String(loadController->getPwmStepDownMax(), 3);
+  json += ",";
+
+  json += "\"fanOnTemp\":";
+  json += String(loadController->getFanOnTemperature(), 1);
+
+  json += "}";
+
+  return json;
+}
+
 void HttpInterface::sendJson() {
   if (web == nullptr || sensorSource == nullptr || loadController == nullptr) {
     return;
   }
 
   web->send(200, "application/json; charset=UTF-8", buildDataJson());
+}
+
+void HttpInterface::sendDebugJson() {
+  if (web == nullptr || loadController == nullptr) {
+    return;
+  }
+
+  web->send(200, "application/json; charset=UTF-8", buildDebugDataJson());
 }
 
 void HttpInterface::handleData() {
@@ -123,6 +183,47 @@ void HttpInterface::handleRoot() {
   }
 
   web->send_P(200, "text/html; charset=UTF-8", INDEX_HTML);
+}
+
+void HttpInterface::handleDebug() {
+  if (web == nullptr) {
+    return;
+  }
+
+  web->send_P(200, "text/html; charset=UTF-8", DEBUG_HTML);
+}
+
+void HttpInterface::handleDebugData() {
+  sendDebugJson();
+}
+
+void HttpInterface::handleDebugSave() {
+  if (web == nullptr || loadController == nullptr) {
+    return;
+  }
+
+  float kpI = web->hasArg("kpI") ? web->arg("kpI").toFloat() : loadController->getCurrentKp();
+  float kiI = web->hasArg("kiI") ? web->arg("kiI").toFloat() : loadController->getCurrentKi();
+  float kpP = web->hasArg("kpP") ? web->arg("kpP").toFloat() : loadController->getPowerKp();
+  float kiP = web->hasArg("kiP") ? web->arg("kiP").toFloat() : loadController->getPowerKi();
+  float stepUp = web->hasArg("stepUp") ? web->arg("stepUp").toFloat() : loadController->getPwmStepUpMax();
+  float stepDown = web->hasArg("stepDown") ? web->arg("stepDown").toFloat() : loadController->getPwmStepDownMax();
+  float fanOnTemp = web->hasArg("fanOnTemp") ? web->arg("fanOnTemp").toFloat() : loadController->getFanOnTemperature();
+
+  loadController->setRegulatorSettings(kpI, kiI, kpP, kiP, stepUp, stepDown);
+  loadController->setFanOnTemperature(fanOnTemp);
+  loadController->setMessage("Настройки PI-регулятора применены");
+  sendDebugJson();
+}
+
+void HttpInterface::handleDebugReset() {
+  if (web == nullptr || loadController == nullptr) {
+    return;
+  }
+
+  loadController->resetRegulatorSettings();
+  loadController->setMessage("Настройки PI-регулятора сброшены");
+  sendDebugJson();
 }
 
 void HttpInterface::handleClientTime() {
@@ -295,6 +396,22 @@ void HttpInterface::begin(WebServer &serverRef, Sensors &sensorsRef, LoadControl
     handleData();
   });
 
+  web->on("/debug", [this]() {
+    handleDebug();
+  });
+
+  web->on("/debugdata", [this]() {
+    handleDebugData();
+  });
+
+  web->on("/debugsave", [this]() {
+    handleDebugSave();
+  });
+
+  web->on("/debugreset", [this]() {
+    handleDebugReset();
+  });
+
   web->on("/clienttime", [this]() {
     handleClientTime();
   });
@@ -331,7 +448,7 @@ String HttpInterface::getTimestamp() {
     return "NO_CLIENT_TIME " + String(millis() / 1000) + "s";
   }
 
-  if (millis() - clientTimeSyncMs > CLIENT_TIME_TIMEOUT_MS) {
+  if (smartLoadTimeReached(clientTimeSyncMs + CLIENT_TIME_TIMEOUT_MS)) {
     return "OLD_CLIENT_TIME " + String(millis() / 1000) + "s";
   }
 

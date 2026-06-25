@@ -23,9 +23,15 @@ private:
   void updateClientTimeFromArgs();
   String escapeJson(String text);
   String buildDataJson();
+  String buildDebugDataJson();
   void sendJson();
+  void sendDebugJson();
   void handleData();
   void handleRoot();
+  void handleDebug();
+  void handleDebugData();
+  void handleDebugSave();
+  void handleDebugReset();
   void handleClientTime();
   void handleStartI();
   void handleStartP();

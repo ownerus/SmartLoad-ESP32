@@ -49,7 +49,7 @@ void Sensors::updateTemperature() {
     return;
   }
 
-  if (millis() - tempRequestStartMs < 800) {
+  if (smartLoadTimeBefore(tempRequestStartMs + 800UL)) {
     return;
   }
 
@@ -137,7 +137,7 @@ void Sensors::update() {
 
   instantCurrent = (currentDiffRaw - zeroDiffRaw) * currentScale;
 
-  if (instantCurrent < CURRENT_DEAD_ZONE_A) {
+  if (instantCurrent < 0.0) {
     instantCurrent = 0.0;
   }
 
@@ -153,7 +153,7 @@ void Sensors::update() {
 
   instantVoltage = adcVoltage * voltageDividerK();
 
-  if (instantVoltage < VOLTAGE_DEAD_ZONE_V) {
+  if (instantVoltage < 0.0) {
     instantVoltage = 0.0;
   }
 
@@ -202,8 +202,4 @@ float Sensors::getTemperatureC() {
 
 float Sensors::getCurrentZeroRaw() {
   return zeroDiffRaw;
-}
-
-float Sensors::getVoltageDividerK() {
-  return voltageDividerK();
 }

@@ -1,4 +1,6 @@
 #pragma once
+#ifndef SMARTLOAD_CONFIG_H
+#define SMARTLOAD_CONFIG_H
 
 // =====================================================
 // SmartLoad ESP32
@@ -19,23 +21,23 @@
 #define ENABLE_HTTP_TELEMETRY 1
 #define TELEMETRY_SERVER_URL "http://192.168.4.2:8000/telemetry"
 #define TELEMETRY_HTTP_TIMEOUT_MS 80
-#define TELEMETRY_FAIL_PAUSE_MS 5000UL
+#define TELEMETRY_RETRY_PERIOD_MS 1000UL
 
 // =====================================================
-// Пины по неактуальной схеме SmartLoad.
+// Пины по схеме 2121212.pdf.
 // =====================================================
 
 #define LED_STATUS_PIN      2
 
-#define ADC_CURRENT_N_PIN   34    // CurrentSensorN
-#define ADC_CURRENT_P_PIN   35    // CurrentSensorP
-#define ADC_VOLTAGE_P_PIN   32    // VoltageSensorP
-#define ADC_VOLTAGE_N_PIN   34    // VoltageSensorN
+#define ADC_CURRENT_P_PIN   34    // CurrentSensor_P
+#define ADC_CURRENT_N_PIN   35    // CurrentSensor_N
+#define ADC_VOLTAGE_P_PIN   32    // VoltageSensor_P
+#define ADC_VOLTAGE_N_PIN   33    // VoltageSensor_N
 
-#define LOAD_PWM_PIN        33    // PWM -> TLP152 -> MOSFET Q2
-#define FAN_PWM_PIN         25    // PWM_FAN
+#define LOAD_PWM_PIN        27    // PWM -> TLP152 -> MOSFET Q1
+#define FAN_PWM_PIN         16    // PWM_FAN
 
-#define TEMP_ONEWIRE_PIN    27    // DS18B20
+#define TEMP_ONEWIRE_PIN    17    // DS18B20
 
 // Главная защита первого запуска.
 // 0 = PWM считается, но на силовой MOSFET не подаётся.
@@ -53,7 +55,18 @@
 #define CONTROL_PERIOD_MS   20
 #define LOG_PERIOD_MS       1000
 #define TELEMETRY_PERIOD_MS 100
+#define TELEMETRY_TASK_STACK_WORDS 8192
+#define TELEMETRY_TASK_PRIORITY    1
+#define TELEMETRY_TASK_CORE        0
 #define CLIENT_TIME_TIMEOUT_MS 600000UL
+
+inline bool smartLoadTimeBefore(unsigned long deadlineMs) {
+  return (long)(deadlineMs - millis()) > 0;
+}
+
+inline bool smartLoadTimeReached(unsigned long deadlineMs) {
+  return !smartLoadTimeBefore(deadlineMs);
+}
 
 // =====================================================
 // Настройки PWM.
@@ -81,9 +94,9 @@
 #define ADC_REF_VOLTAGE 3.3
 #define ADC_MAX_VALUE   4095.0
 
-// Делитель напряжения по схеме: R3 = 220 kOhm, R4 = 10 kOhm.
-#define VOLTAGE_R_TOP       220000.0
-#define VOLTAGE_R_BOTTOM    10000.0
+// Делитель входного напряжения по схеме: R6 = 604 kOhm, R10 = 20.5 kOhm.
+#define VOLTAGE_R_TOP       604000.0
+#define VOLTAGE_R_BOTTOM    20500.0
 
 // Коэффициент пересчёта тока: 24.39 А/В * 3.3 В / 4095.
 #define CURRENT_K 0.01965
@@ -103,9 +116,6 @@
 // Если VoltageSensorP и VoltageSensorN фактически перепутаны, поставить 1.
 #define VOLTAGE_DIFF_INVERTED       0
 
-#define CURRENT_DEAD_ZONE_A         0.00
-#define VOLTAGE_DEAD_ZONE_V         0.00
-
 #define CURRENT_ZERO_SAMPLES        50
 #define CURRENT_ZERO_STABILITY_RAW  40.0
 
@@ -124,3 +134,5 @@
 
 #define FAN_ON_TEMP_C   45.0
 #define FAN_OFF_TEMP_C  35.0
+
+#endif

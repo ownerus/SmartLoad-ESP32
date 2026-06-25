@@ -27,6 +27,9 @@ private:
   float currentKi;
   float powerKp;
   float powerKi;
+  float pwmStepUpMax;
+  float pwmStepDownMax;
+  float fanOnTemperatureC;
 
   float currentLastError;
   float powerLastError;
@@ -40,7 +43,9 @@ private:
   int overCurrentConfirmCounter;
   String systemText;
 
+  bool isValidFloat(float value);
   float limitFloat(float value, float minValue, float maxValue);
+  int limitDurationSec(int value);
   void writeLoadPwm(int value);
   float calculateIncrementalPi(float setpoint, float measured, float kp, float ki, float &lastError, float dt);
   void resetRegulators();
@@ -58,14 +63,23 @@ public:
   void emergencyStop();
   void resetAlarm();
   void setMessage(String text);
+  void setRegulatorSettings(float kpI, float kiI, float kpP, float kiP, float stepUp, float stepDown);
+  void setFanOnTemperature(float value);
+  void resetRegulatorSettings();
   bool canStart();
   void updateFan(float temperatureC);
   bool isRunning();
   bool hasAlarm();
-  bool isFanOn();
   int getPwm();
   unsigned long getElapsedSec();
   String getModeText();
   const char* getModeCode();
   String getMessage();
+  float getCurrentKp();
+  float getCurrentKi();
+  float getPowerKp();
+  float getPowerKi();
+  float getPwmStepUpMax();
+  float getPwmStepDownMax();
+  float getFanOnTemperature();
 };

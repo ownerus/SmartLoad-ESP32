@@ -22,7 +22,7 @@ void setup() {
   delay(1000);
 
   Serial.println();
-  Serial.println("Starting SmartLoad ESP32 version 1.4.2...");
+  Serial.println("Starting SmartLoad ESP32...");
   Serial.println("timestamp,event,current_A,voltage_V,power_W,temp_C,pwm,elapsed_s,mode,info");
 
   pinMode(LED_STATUS_PIN, OUTPUT);
@@ -30,7 +30,6 @@ void setup() {
 
   smartLoad.begin();
   smartSensors.begin();
-  smartTelemetry.begin();
 
   delay(300);
 
@@ -42,10 +41,12 @@ void setup() {
     Serial.println("ZERO FAILED ON STARTUP");
   }
 
-  Serial.print("Voltage K = ");
-  Serial.println(smartSensors.getVoltageDividerK(), 4);
-
   smartHttp.begin(server, smartSensors, smartLoad);
+
+  if (!smartTelemetry.begin(smartSensors, smartLoad, smartHttp)) {
+    smartLoad.setMessage("Ошибка запуска задачи телеметрии");
+    Serial.println("TELEMETRY TASK START FAILED");
+  }
 
   Serial.println("System ready");
 }
@@ -53,12 +54,12 @@ void setup() {
 void loop() {
   smartHttp.update();
 
-  if (millis() - lastSensorMs >= SENSOR_PERIOD_MS) {
+  if (smartLoadTimeReached(lastSensorMs + SENSOR_PERIOD_MS)) {
     lastSensorMs = millis();
     smartSensors.update();
   }
 
-  if (millis() - lastControlMs >= CONTROL_PERIOD_MS) {
+  if (smartLoadTimeReached(lastControlMs + CONTROL_PERIOD_MS)) {
     lastControlMs = millis();
     smartLoad.update(
       smartSensors.getCurrentA(),
@@ -70,7 +71,7 @@ void loop() {
     smartLoad.updateFan(smartSensors.getTemperatureC());
   }
 
-  smartTelemetry.sendPeriodic(smartSensors, smartLoad, smartHttp.getTimestamp());
+  smartTelemetry.publish();
 
   digitalWrite(LED_STATUS_PIN, smartLoad.isRunning() ? HIGH : LOW);
 

@@ -1,4 +1,5 @@
 #include "LoadController.h"
+#include <math.h>
 
 LoadController::LoadController() :
   workMode(CTRL_WAITING),
@@ -13,6 +14,9 @@ LoadController::LoadController() :
   currentKi(KI_I),
   powerKp(KP_P),
   powerKi(KI_P),
+  pwmStepUpMax(PWM_STEP_UP_MAX),
+  pwmStepDownMax(PWM_STEP_DOWN_MAX),
+  fanOnTemperatureC(FAN_ON_TEMP_C),
   currentLastError(0.0),
   powerLastError(0.0),
   durationSec(300),
@@ -24,13 +28,33 @@ LoadController::LoadController() :
   systemText("") {
 }
 
+bool LoadController::isValidFloat(float value) {
+  return !isnan(value) && !isinf(value);
+}
+
 float LoadController::limitFloat(float value, float minValue, float maxValue) {
+  if (!isValidFloat(value)) {
+    return minValue;
+  }
+
   if (value < minValue) {
     return minValue;
   }
 
   if (value > maxValue) {
     return maxValue;
+  }
+
+  return value;
+}
+
+int LoadController::limitDurationSec(int value) {
+  if (value <= 0) {
+    return 300;
+  }
+
+  if (value > 86400) {
+    return 86400;
   }
 
   return value;
@@ -53,6 +77,11 @@ void LoadController::writeLoadPwm(int value) {
 }
 
 float LoadController::calculateIncrementalPi(float setpoint, float measured, float kp, float ki, float &lastError, float dt) {
+  if (!isValidFloat(setpoint) || !isValidFloat(measured) || !isValidFloat(kp) || !isValidFloat(ki) || !isValidFloat(dt) || dt <= 0.0) {
+    lastError = 0.0;
+    return 0.0;
+  }
+
   float error = setpoint - measured;
   float deltaP = kp * (error - lastError);
   float deltaI = ki * error * dt;
@@ -61,12 +90,17 @@ float LoadController::calculateIncrementalPi(float setpoint, float measured, flo
 
   float delta = deltaP + deltaI;
 
-  if (delta > PWM_STEP_UP_MAX) {
-    delta = PWM_STEP_UP_MAX;
+  if (!isValidFloat(delta)) {
+    lastError = 0.0;
+    return 0.0;
   }
 
-  if (delta < -PWM_STEP_DOWN_MAX) {
-    delta = -PWM_STEP_DOWN_MAX;
+  if (delta > pwmStepUpMax) {
+    delta = pwmStepUpMax;
+  }
+
+  if (delta < -pwmStepDownMax) {
+    delta = -pwmStepDownMax;
   }
 
   return delta;
@@ -103,7 +137,14 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
     return;
   }
 
-  if (durationSec > 0 && getElapsedSec() >= (unsigned long)durationSec) {
+  if (!isValidFloat(currentA) || !isValidFloat(voltageV) || !isValidFloat(powerW) || !isValidFloat(temperatureC)) {
+    setAlarm("SENSOR_ERROR");
+    return;
+  }
+
+  unsigned long durationMs = (unsigned long)durationSec * 1000UL;
+
+  if (durationSec > 0 && smartLoadTimeReached(startMs + durationMs)) {
     finishedElapsedSec = getElapsedSec();
     stopOutput();
     overCurrentConfirmCounter = 0;
@@ -173,10 +214,10 @@ bool LoadController::startIConst(float currentSet, float voltageMin, int timeSec
     return false;
   }
 
-  targetCurrentA = currentSet;
-  voltageLimitV = voltageMin;
-  durationSec = timeSec;
-  temperatureLimitC = temperatureMax;
+  targetCurrentA = limitFloat(currentSet, 0.1, 1000.0);
+  voltageLimitV = limitFloat(voltageMin, 0.0, 1000.0);
+  durationSec = limitDurationSec(timeSec);
+  temperatureLimitC = limitFloat(temperatureMax, 1.0, 125.0);
   finishedElapsedSec = 0;
   startMs = millis();
   overCurrentConfirmCounter = 0;
@@ -195,11 +236,11 @@ bool LoadController::startPConst(float powerSet, float currentMax, float voltage
     return false;
   }
 
-  targetPowerW = powerSet;
-  currentLimitA = currentMax;
-  voltageLimitV = voltageMin;
-  durationSec = timeSec;
-  temperatureLimitC = temperatureMax;
+  targetPowerW = limitFloat(powerSet, 1.0, 100000.0);
+  currentLimitA = limitFloat(currentMax, 0.1, 1000.0);
+  voltageLimitV = limitFloat(voltageMin, 0.0, 1000.0);
+  durationSec = limitDurationSec(timeSec);
+  temperatureLimitC = limitFloat(temperatureMax, 1.0, 125.0);
   finishedElapsedSec = 0;
   startMs = millis();
   overCurrentConfirmCounter = 0;
@@ -246,6 +287,25 @@ void LoadController::setMessage(String text) {
   systemText = text;
 }
 
+void LoadController::setRegulatorSettings(float kpI, float kiI, float kpP, float kiP, float stepUp, float stepDown) {
+  currentKp = limitFloat(kpI, 0.0, 20.0);
+  currentKi = limitFloat(kiI, 0.0, 50.0);
+  powerKp = limitFloat(kpP, 0.0, 20.0);
+  powerKi = limitFloat(kiP, 0.0, 50.0);
+  pwmStepUpMax = limitFloat(stepUp, 0.01, PWM_MAX);
+  pwmStepDownMax = limitFloat(stepDown, 0.01, PWM_MAX);
+  resetRegulators();
+}
+
+void LoadController::setFanOnTemperature(float value) {
+  fanOnTemperatureC = limitFloat(value, 0.0, 120.0);
+}
+
+void LoadController::resetRegulatorSettings() {
+  setRegulatorSettings(KP_I, KI_I, KP_P, KI_P, PWM_STEP_UP_MAX, PWM_STEP_DOWN_MAX);
+  setFanOnTemperature(FAN_ON_TEMP_C);
+}
+
 bool LoadController::canStart() {
   return !alarmIsActive && !isRunning();
 }
@@ -255,7 +315,7 @@ void LoadController::updateFan(float temperatureC) {
     fanIsActive = true;
   }
 
-  if (temperatureC >= FAN_ON_TEMP_C) {
+  if (temperatureC >= fanOnTemperatureC) {
     fanIsActive = true;
   }
 
@@ -272,10 +332,6 @@ bool LoadController::isRunning() {
 
 bool LoadController::hasAlarm() {
   return alarmIsActive;
-}
-
-bool LoadController::isFanOn() {
-  return fanIsActive;
 }
 
 int LoadController::getPwm() {
@@ -324,4 +380,32 @@ const char* LoadController::getModeCode() {
 
 String LoadController::getMessage() {
   return systemText;
+}
+
+float LoadController::getCurrentKp() {
+  return currentKp;
+}
+
+float LoadController::getCurrentKi() {
+  return currentKi;
+}
+
+float LoadController::getPowerKp() {
+  return powerKp;
+}
+
+float LoadController::getPowerKi() {
+  return powerKi;
+}
+
+float LoadController::getPwmStepUpMax() {
+  return pwmStepUpMax;
+}
+
+float LoadController::getPwmStepDownMax() {
+  return pwmStepDownMax;
+}
+
+float LoadController::getFanOnTemperature() {
+  return fanOnTemperatureC;
 }
