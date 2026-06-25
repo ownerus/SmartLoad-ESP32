@@ -141,7 +141,7 @@ const periods = {
 let selectedPeriod = '10m';
 let refreshTimer = null;
 let refreshInFlight = false;
-let refreshQueued = false;
+let nextRefreshAt = 0;
 
 function num(v){
   const n = Number(v);
@@ -285,6 +285,7 @@ function setPeriod(period){
     button.classList.toggle('active', button.dataset.range === period);
   });
   document.getElementById('periodSelect').classList.remove('open');
+  nextRefreshAt = 0;
   refresh(true);
 }
 
@@ -299,7 +300,18 @@ function isPeriodMenuOpen(){
 
 function scheduleRefresh(delay){
   if (refreshTimer) clearTimeout(refreshTimer);
-  const nextDelay = delay === undefined ? (selectedPeriod === 'all' ? 500 : 100) : delay;
+  const periodMs = selectedPeriod === 'all' ? 500 : 100;
+  const now = performance.now();
+
+  if (delay !== undefined) {
+    nextRefreshAt = now + delay;
+  } else if (!nextRefreshAt || nextRefreshAt < now - periodMs) {
+    nextRefreshAt = now + periodMs;
+  } else {
+    nextRefreshAt += periodMs;
+  }
+
+  const nextDelay = Math.max(0, nextRefreshAt - now);
   refreshTimer = setTimeout(() => refresh(false), nextDelay);
 }
 
@@ -310,7 +322,7 @@ async function refresh(force){
   }
 
   if (refreshInFlight) {
-    refreshQueued = true;
+    scheduleRefresh();
     return;
   }
 
@@ -328,12 +340,7 @@ async function refresh(force){
     document.getElementById('status').textContent = 'server connection error';
   } finally {
     refreshInFlight = false;
-    if (refreshQueued) {
-      refreshQueued = false;
-      scheduleRefresh(0);
-    } else {
-      scheduleRefresh();
-    }
+    scheduleRefresh();
   }
 }
 
