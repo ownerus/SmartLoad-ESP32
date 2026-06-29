@@ -75,6 +75,10 @@ String HttpInterface::escapeJson(String text) {
 }
 
 String HttpInterface::buildDataJson() {
+  if (sensorSource == nullptr || loadController == nullptr) {
+    return "{}";
+  }
+
   String json = "{";
 
   json += "\"mode\":\"";
@@ -123,6 +127,10 @@ String HttpInterface::buildDataJson() {
 }
 
 String HttpInterface::buildDebugDataJson() {
+  if (sensorSource == nullptr || loadController == nullptr) {
+    return "{}";
+  }
+
   String json = "{";
 
   json += "\"kpI\":";
@@ -151,6 +159,131 @@ String HttpInterface::buildDebugDataJson() {
 
   json += "\"fanOnTemp\":";
   json += String(loadController->getFanOnTemperature(), 1);
+  json += ",";
+
+  json += "\"maxTestCurrent\":";
+  json += String(loadController->getMaxTestCurrent(), 2);
+  json += ",";
+
+  json += "\"overCurrentFactor\":";
+  json += String(loadController->getOverCurrentFactor(), 3);
+  json += ",";
+
+  json += "\"overCurrentConfirmCount\":";
+  json += String(loadController->getOverCurrentConfirmCount());
+  json += ",";
+
+  json += "\"loadOutputEnabled\":";
+  json += loadController->isLoadOutputEnabled() ? "true" : "false";
+  json += ",";
+
+  json += "\"voltageProtectionEnabled\":";
+  json += loadController->isVoltageProtectionEnabled() ? "true" : "false";
+  json += ",";
+
+  json += "\"pwmMin\":";
+  json += String(loadController->getPwmMinLimit());
+  json += ",";
+
+  json += "\"pwmMax\":";
+  json += String(loadController->getPwmMaxLimit());
+  json += ",";
+
+  json += "\"pwmFreq\":";
+  json += String(loadController->getPwmFrequencyHz());
+  json += ",";
+
+  json += "\"pwmResolution\":";
+  json += String(loadController->getPwmResolutionBits());
+  json += ",";
+
+  json += "\"currentK\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentScale(), 5) : "0";
+  json += ",";
+
+  json += "\"voltageK\":";
+  json += sensorSource != nullptr ? String(sensorSource->getVoltageScale(), 5) : "0";
+  json += ",";
+
+  json += "\"adcRefVoltage\":";
+  json += sensorSource != nullptr ? String(sensorSource->getAdcRefVoltage(), 4) : "0";
+  json += ",";
+
+  json += "\"adcMaxValue\":";
+  json += sensorSource != nullptr ? String(sensorSource->getAdcMaxValue(), 1) : "0";
+  json += ",";
+
+  json += "\"analogAverageSamples\":";
+  json += sensorSource != nullptr ? String(sensorSource->getAnalogAverageSamples()) : "0";
+  json += ",";
+
+  json += "\"movingAverageSamples\":";
+  json += sensorSource != nullptr ? String(sensorSource->getMovingAverageSamples()) : "0";
+  json += ",";
+
+  json += "\"filterK\":";
+  json += sensorSource != nullptr ? String(sensorSource->getFilterK(), 4) : "0";
+  json += ",";
+
+  json += "\"currentZeroSamples\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentZeroSamples()) : "0";
+  json += ",";
+
+  json += "\"currentZeroStabilityRaw\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentZeroStabilityRaw(), 1) : "0";
+  json += ",";
+
+  json += "\"debugCurrent\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentA(), 3) : "0";
+  json += ",";
+
+  json += "\"debugVoltage\":";
+  json += sensorSource != nullptr ? String(sensorSource->getVoltageV(), 2) : "0";
+  json += ",";
+
+  json += "\"debugPower\":";
+  json += sensorSource != nullptr ? String(sensorSource->getPowerW(), 1) : "0";
+  json += ",";
+
+  json += "\"debugTemp\":";
+  json += sensorSource != nullptr ? String(sensorSource->getTemperatureC(), 1) : "0";
+  json += ",";
+
+  json += "\"currentDiffRaw\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentDiffRaw(), 1) : "0";
+  json += ",";
+
+  json += "\"currentRawP\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentRawP(), 1) : "0";
+  json += ",";
+
+  json += "\"currentRawN\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentRawN(), 1) : "0";
+  json += ",";
+
+  json += "\"currentZeroRaw\":";
+  json += sensorSource != nullptr ? String(sensorSource->getCurrentZeroRaw(), 1) : "0";
+  json += ",";
+
+  json += "\"voltageDiffRaw\":";
+  json += sensorSource != nullptr ? String(sensorSource->getVoltageDiffRaw(), 1) : "0";
+  json += ",";
+
+  json += "\"voltageRawP\":";
+  json += sensorSource != nullptr ? String(sensorSource->getVoltageRawP(), 1) : "0";
+  json += ",";
+
+  json += "\"voltageRawN\":";
+  json += sensorSource != nullptr ? String(sensorSource->getVoltageRawN(), 1) : "0";
+  json += ",";
+
+  json += "\"debugPwm\":";
+  json += loadController->getPwm();
+  json += ",";
+
+  json += "\"debugMode\":\"";
+  json += loadController->getModeCode();
+  json += "\"";
 
   json += "}";
 
@@ -166,7 +299,7 @@ void HttpInterface::sendJson() {
 }
 
 void HttpInterface::sendDebugJson() {
-  if (web == nullptr || loadController == nullptr) {
+  if (web == nullptr || loadController == nullptr || sensorSource == nullptr) {
     return;
   }
 
@@ -198,7 +331,7 @@ void HttpInterface::handleDebugData() {
 }
 
 void HttpInterface::handleDebugSave() {
-  if (web == nullptr || loadController == nullptr) {
+  if (web == nullptr || loadController == nullptr || sensorSource == nullptr) {
     return;
   }
 
@@ -209,19 +342,50 @@ void HttpInterface::handleDebugSave() {
   float stepUp = web->hasArg("stepUp") ? web->arg("stepUp").toFloat() : loadController->getPwmStepUpMax();
   float stepDown = web->hasArg("stepDown") ? web->arg("stepDown").toFloat() : loadController->getPwmStepDownMax();
   float fanOnTemp = web->hasArg("fanOnTemp") ? web->arg("fanOnTemp").toFloat() : loadController->getFanOnTemperature();
+  float maxTestCurrent = web->hasArg("maxTestCurrent") ? web->arg("maxTestCurrent").toFloat() : loadController->getMaxTestCurrent();
+  float overCurrentFactor = web->hasArg("overCurrentFactor") ? web->arg("overCurrentFactor").toFloat() : loadController->getOverCurrentFactor();
+  int overCurrentConfirmCount = web->hasArg("overCurrentConfirmCount") ? web->arg("overCurrentConfirmCount").toInt() : loadController->getOverCurrentConfirmCount();
+  bool loadOutputEnabled = web->hasArg("loadOutputEnabled") ? web->arg("loadOutputEnabled").toInt() != 0 : loadController->isLoadOutputEnabled();
+  bool voltageProtectionEnabled = web->hasArg("voltageProtectionEnabled") ? web->arg("voltageProtectionEnabled").toInt() != 0 : loadController->isVoltageProtectionEnabled();
+  int pwmMin = web->hasArg("pwmMin") ? web->arg("pwmMin").toInt() : loadController->getPwmMinLimit();
+  int pwmMax = web->hasArg("pwmMax") ? web->arg("pwmMax").toInt() : loadController->getPwmMaxLimit();
+  int pwmFreq = web->hasArg("pwmFreq") ? web->arg("pwmFreq").toInt() : loadController->getPwmFrequencyHz();
+  int pwmResolution = web->hasArg("pwmResolution") ? web->arg("pwmResolution").toInt() : loadController->getPwmResolutionBits();
+  float currentK = web->hasArg("currentK") ? web->arg("currentK").toFloat() : sensorSource->getCurrentScale();
+  float voltageK = web->hasArg("voltageK") ? web->arg("voltageK").toFloat() : sensorSource->getVoltageScale();
+  float adcRefVoltage = web->hasArg("adcRefVoltage") ? web->arg("adcRefVoltage").toFloat() : sensorSource->getAdcRefVoltage();
+  float adcMaxValue = web->hasArg("adcMaxValue") ? web->arg("adcMaxValue").toFloat() : sensorSource->getAdcMaxValue();
+  int analogAverageSamples = web->hasArg("analogAverageSamples") ? web->arg("analogAverageSamples").toInt() : sensorSource->getAnalogAverageSamples();
+  int movingAverageSamples = web->hasArg("movingAverageSamples") ? web->arg("movingAverageSamples").toInt() : sensorSource->getMovingAverageSamples();
+  float filterK = web->hasArg("filterK") ? web->arg("filterK").toFloat() : sensorSource->getFilterK();
+  int currentZeroSamples = web->hasArg("currentZeroSamples") ? web->arg("currentZeroSamples").toInt() : sensorSource->getCurrentZeroSamples();
+  float currentZeroStabilityRaw = web->hasArg("currentZeroStabilityRaw") ? web->arg("currentZeroStabilityRaw").toFloat() : sensorSource->getCurrentZeroStabilityRaw();
 
   loadController->setRegulatorSettings(kpI, kiI, kpP, kiP, stepUp, stepDown);
   loadController->setFanOnTemperature(fanOnTemp);
+  loadController->setDebugLimits(maxTestCurrent, overCurrentFactor, overCurrentConfirmCount);
+  loadController->setOutputSettings(loadOutputEnabled, voltageProtectionEnabled, pwmMin, pwmMax, pwmFreq, pwmResolution);
+  sensorSource->setCurrentScale(currentK);
+  sensorSource->setVoltageScale(voltageK);
+  sensorSource->setAdcSettings(adcRefVoltage, adcMaxValue);
+  sensorSource->setAnalogAverageSamples(analogAverageSamples);
+  sensorSource->setMovingAverageSamples(movingAverageSamples);
+  sensorSource->setFilterK(filterK);
+  sensorSource->setCurrentZeroSettings(currentZeroSamples, currentZeroStabilityRaw);
   loadController->setMessage("Настройки PI-регулятора применены");
   sendDebugJson();
 }
 
 void HttpInterface::handleDebugReset() {
-  if (web == nullptr || loadController == nullptr) {
+  if (web == nullptr || loadController == nullptr || sensorSource == nullptr) {
     return;
   }
 
   loadController->resetRegulatorSettings();
+  loadController->resetOutputSettings();
+  sensorSource->resetCurrentScale();
+  sensorSource->resetVoltageScale();
+  sensorSource->resetSensorSettings();
   loadController->setMessage("Настройки PI-регулятора сброшены");
   sendDebugJson();
 }
@@ -236,7 +400,7 @@ void HttpInterface::handleClientTime() {
 }
 
 void HttpInterface::handleStartI() {
-  if (web == nullptr || loadController == nullptr) {
+  if (web == nullptr || loadController == nullptr || sensorSource == nullptr) {
     return;
   }
 
@@ -249,6 +413,10 @@ void HttpInterface::handleStartI() {
 
   if (currentSet <= 0.0) {
     currentSet = 1.0;
+  }
+
+  if (currentSet > loadController->getMaxTestCurrent()) {
+    currentSet = loadController->getMaxTestCurrent();
   }
 
   if (voltageMin < 0.0) {
@@ -288,7 +456,7 @@ void HttpInterface::handleStartI() {
 }
 
 void HttpInterface::handleStartP() {
-  if (web == nullptr || loadController == nullptr) {
+  if (web == nullptr || loadController == nullptr || sensorSource == nullptr) {
     return;
   }
 
@@ -306,6 +474,10 @@ void HttpInterface::handleStartP() {
 
   if (currentMax <= 0.0) {
     currentMax = 1.0;
+  }
+
+  if (currentMax > loadController->getMaxTestCurrent()) {
+    currentMax = loadController->getMaxTestCurrent();
   }
 
   if (voltageMin < 0.0) {
@@ -448,7 +620,7 @@ String HttpInterface::getTimestamp() {
     return "NO_CLIENT_TIME " + String(millis() / 1000) + "s";
   }
 
-  if (smartLoadTimeReached(clientTimeSyncMs + CLIENT_TIME_TIMEOUT_MS)) {
+  if (!smartLoadTimeBefore(clientTimeSyncMs + CLIENT_TIME_TIMEOUT_MS)) {
     return "OLD_CLIENT_TIME " + String(millis() / 1000) + "s";
   }
 

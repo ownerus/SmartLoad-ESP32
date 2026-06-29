@@ -1,6 +1,13 @@
 #include "LoadController.h"
 #include <math.h>
 
+#ifndef ESP_ARDUINO_VERSION_MAJOR
+#define ESP_ARDUINO_VERSION_MAJOR 2
+#endif
+
+#define LOAD_PWM_CHANNEL 0
+#define FAN_PWM_CHANNEL  1
+
 LoadController::LoadController() :
   workMode(CTRL_WAITING),
   targetCurrentA(1.0),
@@ -17,6 +24,15 @@ LoadController::LoadController() :
   pwmStepUpMax(PWM_STEP_UP_MAX),
   pwmStepDownMax(PWM_STEP_DOWN_MAX),
   fanOnTemperatureC(FAN_ON_TEMP_C),
+  maxTestCurrentA(MAX_TEST_CURRENT_A),
+  overCurrentFactor(OVER_CURRENT_FACTOR),
+  overCurrentConfirmLimit(OVER_CURRENT_CONFIRM_COUNT),
+  pwmMinLimit(PWM_MIN),
+  pwmMaxLimit(PWM_MAX),
+  pwmFrequencyHz(PWM_FREQ_HZ),
+  pwmResolutionBits(PWM_RESOLUTION_BITS),
+  loadOutputEnabled(ENABLE_LOAD_OUTPUT != 0),
+  voltageProtectionEnabled(ENABLE_VOLTAGE_PROTECTION != 0),
   currentLastError(0.0),
   powerLastError(0.0),
   durationSec(300),
@@ -60,19 +76,25 @@ int LoadController::limitDurationSec(int value) {
   return value;
 }
 
-void LoadController::writeLoadPwm(int value) {
-  pwmOutput = constrain(value, PWM_MIN, PWM_MAX);
-
-  int output = pwmOutput;
-
-#if PWM_INVERTED
-  output = PWM_MAX - output;
-#endif
-
-#if ENABLE_LOAD_OUTPUT
-  ledcWrite(LOAD_PWM_PIN, output);
+void LoadController::writeFanPwm(int value) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(FAN_PWM_PIN, value);
 #else
-  ledcWrite(LOAD_PWM_PIN, 0);
+  ledcWrite(FAN_PWM_CHANNEL, value);
+#endif
+}
+
+void LoadController::writeLoadPwm(int value) {
+  if (value <= 0) {
+    pwmOutput = 0;
+  } else {
+    pwmOutput = constrain(value, pwmMinLimit, pwmMaxLimit);
+  }
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(LOAD_PWM_PIN, loadOutputEnabled ? pwmOutput : 0);
+#else
+  ledcWrite(LOAD_PWM_CHANNEL, loadOutputEnabled ? pwmOutput : 0);
 #endif
 }
 
@@ -111,6 +133,18 @@ void LoadController::resetRegulators() {
   powerLastError = 0.0;
 }
 
+void LoadController::applyPwmHardwareSettings() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(LOAD_PWM_PIN, pwmFrequencyHz, pwmResolutionBits);
+  ledcAttach(FAN_PWM_PIN, pwmFrequencyHz, pwmResolutionBits);
+#else
+  ledcSetup(LOAD_PWM_CHANNEL, pwmFrequencyHz, pwmResolutionBits);
+  ledcSetup(FAN_PWM_CHANNEL, pwmFrequencyHz, pwmResolutionBits);
+  ledcAttachPin(LOAD_PWM_PIN, LOAD_PWM_CHANNEL);
+  ledcAttachPin(FAN_PWM_PIN, FAN_PWM_CHANNEL);
+#endif
+}
+
 void LoadController::setAlarm(String text) {
   alarmIsActive = true;
   systemText = "Авария: " + text;
@@ -125,10 +159,9 @@ void LoadController::stopOutput() {
 }
 
 void LoadController::begin() {
-  ledcAttach(LOAD_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
-  ledcAttach(FAN_PWM_PIN, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+  applyPwmHardwareSettings();
   stopOutput();
-  ledcWrite(FAN_PWM_PIN, 0);
+  writeFanPwm(0);
 }
 
 void LoadController::update(float currentA, float voltageV, float powerW, float temperatureC) {
@@ -144,7 +177,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
 
   unsigned long durationMs = (unsigned long)durationSec * 1000UL;
 
-  if (durationSec > 0 && smartLoadTimeReached(startMs + durationMs)) {
+  if (durationSec > 0 && !smartLoadTimeBefore(startMs + durationMs)) {
     finishedElapsedSec = getElapsedSec();
     stopOutput();
     overCurrentConfirmCounter = 0;
@@ -154,12 +187,10 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
     return;
   }
 
-#if ENABLE_VOLTAGE_PROTECTION
-  if (voltageLimitV > 0.0 && voltageV < voltageLimitV) {
+  if (voltageProtectionEnabled && voltageLimitV > 0.0 && voltageV < voltageLimitV) {
     setAlarm("LOW_VOLTAGE");
     return;
   }
-#endif
 
   if (temperatureC > temperatureLimitC) {
     setAlarm("OVER_TEMPERATURE");
@@ -168,10 +199,10 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
   }
 
   if (workMode == CTRL_I_CONST) {
-    if (currentA > targetCurrentA * OVER_CURRENT_FACTOR && currentA > 1.0) {
+    if (currentA > targetCurrentA * overCurrentFactor && currentA > 1.0) {
       overCurrentConfirmCounter++;
 
-      if (overCurrentConfirmCounter >= OVER_CURRENT_CONFIRM_COUNT) {
+      if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
         setAlarm("OVER_CURRENT");
         updateFan(temperatureC);
         return;
@@ -190,7 +221,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
     if (currentA > currentLimitA) {
       overCurrentConfirmCounter++;
 
-      if (overCurrentConfirmCounter >= OVER_CURRENT_CONFIRM_COUNT) {
+      if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
         setAlarm("OVER_CURRENT");
         updateFan(temperatureC);
         return;
@@ -214,7 +245,7 @@ bool LoadController::startIConst(float currentSet, float voltageMin, int timeSec
     return false;
   }
 
-  targetCurrentA = limitFloat(currentSet, 0.1, 1000.0);
+  targetCurrentA = limitFloat(currentSet, 0.1, maxTestCurrentA);
   voltageLimitV = limitFloat(voltageMin, 0.0, 1000.0);
   durationSec = limitDurationSec(timeSec);
   temperatureLimitC = limitFloat(temperatureMax, 1.0, 125.0);
@@ -237,7 +268,7 @@ bool LoadController::startPConst(float powerSet, float currentMax, float voltage
   }
 
   targetPowerW = limitFloat(powerSet, 1.0, 100000.0);
-  currentLimitA = limitFloat(currentMax, 0.1, 1000.0);
+  currentLimitA = limitFloat(currentMax, 0.1, maxTestCurrentA);
   voltageLimitV = limitFloat(voltageMin, 0.0, 1000.0);
   durationSec = limitDurationSec(timeSec);
   temperatureLimitC = limitFloat(temperatureMax, 1.0, 125.0);
@@ -301,9 +332,80 @@ void LoadController::setFanOnTemperature(float value) {
   fanOnTemperatureC = limitFloat(value, 0.0, 120.0);
 }
 
+void LoadController::setDebugLimits(float maxCurrent, float overCurrentFactorValue, int overCurrentConfirmCount) {
+  maxTestCurrentA = limitFloat(maxCurrent, 0.1, 1000.0);
+  overCurrentFactor = limitFloat(overCurrentFactorValue, 1.0, 10.0);
+
+  if (overCurrentConfirmCount < 1) {
+    overCurrentConfirmCount = 1;
+  }
+
+  if (overCurrentConfirmCount > 100) {
+    overCurrentConfirmCount = 100;
+  }
+
+  overCurrentConfirmLimit = overCurrentConfirmCount;
+}
+
+void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution) {
+  if (pwmMin < 0) {
+    pwmMin = 0;
+  }
+
+  if (pwmMax > 65535) {
+    pwmMax = 65535;
+  }
+
+  if (pwmMax < pwmMin) {
+    pwmMax = pwmMin;
+  }
+
+  if (pwmFreq < 1) {
+    pwmFreq = 1;
+  }
+
+  if (pwmFreq > 40000) {
+    pwmFreq = 40000;
+  }
+
+  if (pwmResolution < 1) {
+    pwmResolution = 1;
+  }
+
+  if (pwmResolution > 16) {
+    pwmResolution = 16;
+  }
+
+  loadOutputEnabled = outputEnabled;
+  voltageProtectionEnabled = voltageProtection;
+  pwmMinLimit = pwmMin;
+  pwmMaxLimit = pwmMax;
+
+  if (pwmFrequencyHz != pwmFreq || pwmResolutionBits != pwmResolution) {
+    stopOutput();
+    pwmFrequencyHz = pwmFreq;
+    pwmResolutionBits = pwmResolution;
+    applyPwmHardwareSettings();
+  }
+
+  writeLoadPwm(pwmOutput);
+}
+
 void LoadController::resetRegulatorSettings() {
   setRegulatorSettings(KP_I, KI_I, KP_P, KI_P, PWM_STEP_UP_MAX, PWM_STEP_DOWN_MAX);
   setFanOnTemperature(FAN_ON_TEMP_C);
+  setDebugLimits(MAX_TEST_CURRENT_A, OVER_CURRENT_FACTOR, OVER_CURRENT_CONFIRM_COUNT);
+}
+
+void LoadController::resetOutputSettings() {
+  setOutputSettings(
+    ENABLE_LOAD_OUTPUT != 0,
+    ENABLE_VOLTAGE_PROTECTION != 0,
+    PWM_MIN,
+    PWM_MAX,
+    PWM_FREQ_HZ,
+    PWM_RESOLUTION_BITS
+  );
 }
 
 bool LoadController::canStart() {
@@ -323,7 +425,7 @@ void LoadController::updateFan(float temperatureC) {
     fanIsActive = false;
   }
 
-  ledcWrite(FAN_PWM_PIN, fanIsActive ? 255 : 0);
+  writeFanPwm(fanIsActive ? 255 : 0);
 }
 
 bool LoadController::isRunning() {
@@ -408,4 +510,40 @@ float LoadController::getPwmStepDownMax() {
 
 float LoadController::getFanOnTemperature() {
   return fanOnTemperatureC;
+}
+
+float LoadController::getMaxTestCurrent() {
+  return maxTestCurrentA;
+}
+
+float LoadController::getOverCurrentFactor() {
+  return overCurrentFactor;
+}
+
+int LoadController::getOverCurrentConfirmCount() {
+  return overCurrentConfirmLimit;
+}
+
+int LoadController::getPwmMinLimit() {
+  return pwmMinLimit;
+}
+
+int LoadController::getPwmMaxLimit() {
+  return pwmMaxLimit;
+}
+
+int LoadController::getPwmFrequencyHz() {
+  return pwmFrequencyHz;
+}
+
+int LoadController::getPwmResolutionBits() {
+  return pwmResolutionBits;
+}
+
+bool LoadController::isLoadOutputEnabled() {
+  return loadOutputEnabled;
+}
+
+bool LoadController::isVoltageProtectionEnabled() {
+  return voltageProtectionEnabled;
 }

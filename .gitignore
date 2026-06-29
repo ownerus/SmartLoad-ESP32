@@ -16,6 +16,8 @@
 # SmartLoad project files.
 !Server/server.py
 !Board/SmartLoad/SmartLoad.ino
+!Board/SmartLoad/platformio.ini
+!Board/SmartLoad/src/*.cpp
 !Board/SmartLoad/config.h
 !Board/SmartLoad/libraries/Sensors/library.properties
 !Board/SmartLoad/libraries/Sensors/src/*.h

@@ -19,7 +19,6 @@ TelemetryClient smartTelemetry;
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
 
   Serial.println();
   Serial.println("Starting SmartLoad ESP32...");
@@ -30,8 +29,6 @@ void setup() {
 
   smartLoad.begin();
   smartSensors.begin();
-
-  delay(300);
 
   if (smartSensors.calibrateCurrentZero()) {
     Serial.print("ZERO OK. ZeroDiff raw = ");
@@ -54,12 +51,12 @@ void setup() {
 void loop() {
   smartHttp.update();
 
-  if (smartLoadTimeReached(lastSensorMs + SENSOR_PERIOD_MS)) {
+  if (!smartLoadTimeBefore(lastSensorMs + SENSOR_PERIOD_MS)) {
     lastSensorMs = millis();
     smartSensors.update();
   }
 
-  if (smartLoadTimeReached(lastControlMs + CONTROL_PERIOD_MS)) {
+  if (!smartLoadTimeBefore(lastControlMs + CONTROL_PERIOD_MS)) {
     lastControlMs = millis();
     smartLoad.update(
       smartSensors.getCurrentA(),
@@ -75,5 +72,5 @@ void loop() {
 
   digitalWrite(LED_STATUS_PIN, smartLoad.isRunning() ? HIGH : LOW);
 
-  delay(2);
+  yield();
 }

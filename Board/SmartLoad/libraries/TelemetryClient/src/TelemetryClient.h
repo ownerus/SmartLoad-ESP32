@@ -39,11 +39,18 @@ private:
   SemaphoreHandle_t snapshotMutex;
   Snapshot latestSnapshot;
   TaskHandle_t taskHandle;
+  unsigned long lastSensorUpdateCounter;
+  unsigned long averageSampleCount;
+  float currentSum;
+  float voltageSum;
+  float powerSum;
+  float temperatureSum;
 
   String encode(String value);
   static void taskEntry(void *parameter);
   void runTask();
   bool copySnapshot(Snapshot &snapshot);
+  void resetAverages();
 
 public:
   TelemetryClient();

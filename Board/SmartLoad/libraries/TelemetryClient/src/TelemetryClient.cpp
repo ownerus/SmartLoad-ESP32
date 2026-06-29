@@ -16,7 +16,13 @@ TelemetryClient::TelemetryClient() :
   load(nullptr),
   http(nullptr),
   snapshotMutex(nullptr),
-  taskHandle(nullptr) {
+  taskHandle(nullptr),
+  lastSensorUpdateCounter(0),
+  averageSampleCount(0),
+  currentSum(0.0),
+  voltageSum(0.0),
+  powerSum(0.0),
+  temperatureSum(0.0) {
   memset(&latestSnapshot, 0, sizeof(latestSnapshot));
 }
 
@@ -79,26 +85,36 @@ void TelemetryClient::publish() {
     return;
   }
 
+  unsigned long sensorUpdateCounter = sensors->getUpdateCounter();
+
+  if (sensorUpdateCounter == lastSensorUpdateCounter) {
+    return;
+  }
+
   String timestamp = http->getTimestamp();
   const char *modeCode = load->getModeCode();
 
-  Snapshot snapshot;
-  snapshot.currentA = sensors->getCurrentA();
-  snapshot.voltageV = sensors->getVoltageV();
-  snapshot.powerW = sensors->getPowerW();
-  snapshot.temperatureC = sensors->getTemperatureC();
-  snapshot.pwm = load->getPwm();
-  snapshot.elapsedSec = load->getElapsedSec();
-  snapshot.isRunning = load->isRunning();
-  snapshot.hasAlarm = load->hasAlarm();
-  snapshot.ready = true;
-
-  strncpy(snapshot.modeCode, modeCode, sizeof(snapshot.modeCode) - 1);
-  snapshot.modeCode[sizeof(snapshot.modeCode) - 1] = '\0';
-  timestamp.toCharArray(snapshot.timestamp, sizeof(snapshot.timestamp));
-
   if (xSemaphoreTake(snapshotMutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-    latestSnapshot = snapshot;
+    lastSensorUpdateCounter = sensorUpdateCounter;
+    currentSum += sensors->getCurrentA();
+    voltageSum += sensors->getVoltageV();
+    powerSum += sensors->getPowerW();
+    temperatureSum += sensors->getTemperatureC();
+    averageSampleCount++;
+
+    latestSnapshot.currentA = currentSum / averageSampleCount;
+    latestSnapshot.voltageV = voltageSum / averageSampleCount;
+    latestSnapshot.powerW = powerSum / averageSampleCount;
+    latestSnapshot.temperatureC = temperatureSum / averageSampleCount;
+    latestSnapshot.pwm = load->getPwm();
+    latestSnapshot.elapsedSec = load->getElapsedSec();
+    latestSnapshot.isRunning = load->isRunning();
+    latestSnapshot.hasAlarm = load->hasAlarm();
+    latestSnapshot.ready = true;
+
+    strncpy(latestSnapshot.modeCode, modeCode, sizeof(latestSnapshot.modeCode) - 1);
+    latestSnapshot.modeCode[sizeof(latestSnapshot.modeCode) - 1] = '\0';
+    timestamp.toCharArray(latestSnapshot.timestamp, sizeof(latestSnapshot.timestamp));
     xSemaphoreGive(snapshotMutex);
   }
 }
@@ -113,9 +129,19 @@ bool TelemetryClient::copySnapshot(Snapshot &snapshot) {
   }
 
   snapshot = latestSnapshot;
+  resetAverages();
   xSemaphoreGive(snapshotMutex);
 
   return snapshot.ready;
+}
+
+void TelemetryClient::resetAverages() {
+  averageSampleCount = 0;
+  currentSum = 0.0;
+  voltageSum = 0.0;
+  powerSum = 0.0;
+  temperatureSum = 0.0;
+  latestSnapshot.ready = false;
 }
 
 void TelemetryClient::taskEntry(void *parameter) {

@@ -42,7 +42,7 @@
 // Главная защита первого запуска.
 // 0 = PWM считается, но на силовой MOSFET не подаётся.
 // 1 = реальный PWM подаётся на силовую нагрузку.
-#define ENABLE_LOAD_OUTPUT  0
+#define ENABLE_LOAD_OUTPUT  1
 
 // Защита от просадки входного напряжения.
 #define ENABLE_VOLTAGE_PROTECTION 1
@@ -64,10 +64,6 @@ inline bool smartLoadTimeBefore(unsigned long deadlineMs) {
   return (long)(deadlineMs - millis()) > 0;
 }
 
-inline bool smartLoadTimeReached(unsigned long deadlineMs) {
-  return !smartLoadTimeBefore(deadlineMs);
-}
-
 // =====================================================
 // Настройки PWM.
 // =====================================================
@@ -77,10 +73,6 @@ inline bool smartLoadTimeReached(unsigned long deadlineMs) {
 
 #define PWM_MIN                 0
 #define PWM_MAX                 255
-
-// 0 = обычная логика, больше PWM значит больше ток.
-// 1 = инвертированная логика.
-#define PWM_INVERTED            0
 
 // Ограничение скорости изменения PWM.
 // Вверх медленно, вниз быстрее.
@@ -93,13 +85,26 @@ inline bool smartLoadTimeReached(unsigned long deadlineMs) {
 
 #define ADC_REF_VOLTAGE 3.3
 #define ADC_MAX_VALUE   4095.0
+#define ADC_SAMPLE_PAIRS_PER_UPDATE 16
+#define ADC_MOVING_AVERAGE_SAMPLES 64
+#define ADC_AVERAGE_MAX_SAMPLES 512
+
+// Токовый усилитель держит выходы около середины питания. ADC_6db дает больше counts,
+// чем ADC_11db, но входы должны оставаться ниже примерно 2.2 V относительно GND.
+#define CURRENT_ADC_ATTENUATION ADC_6db
+#define VOLTAGE_ADC_ATTENUATION ADC_11db
 
 // Делитель входного напряжения по схеме: R6 = 604 kOhm, R10 = 20.5 kOhm.
 #define VOLTAGE_R_TOP       604000.0
 #define VOLTAGE_R_BOTTOM    20500.0
+#define VOLTAGE_K           ((VOLTAGE_R_TOP + VOLTAGE_R_BOTTOM) / VOLTAGE_R_BOTTOM)
 
-// Коэффициент пересчёта тока: 24.39 А/В * 3.3 В / 4095.
-#define CURRENT_K 0.01965
+// Рабочий лимит стенда на время наладки.
+#define MAX_TEST_CURRENT_A 5.0
+
+// Коэффициент пересчёта тока:
+// шунт 2.5 mOhm, 75 mV при 30 A, усиление 8.2, ADC_6db ~2.2 V / 4095.
+#define CURRENT_K 0.02620
 
 // PI-регулятор тока для режима I = const.
 // Мягкие стартовые коэффициенты для первого запуска.
@@ -109,12 +114,6 @@ inline bool smartLoadTimeReached(unsigned long deadlineMs) {
 // PI-регулятор мощности для режима P = const.
 #define KP_P 0.03
 #define KI_P 0.08
-
-// Если CurrentSensorP и CurrentSensorN фактически перепутаны, поставить 1.
-#define CURRENT_DIFF_INVERTED       0
-
-// Если VoltageSensorP и VoltageSensorN фактически перепутаны, поставить 1.
-#define VOLTAGE_DIFF_INVERTED       0
 
 #define CURRENT_ZERO_SAMPLES        50
 #define CURRENT_ZERO_STABILITY_RAW  40.0
