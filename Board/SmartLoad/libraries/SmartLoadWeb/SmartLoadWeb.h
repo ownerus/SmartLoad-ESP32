@@ -12,52 +12,55 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <title>SMARTLOAD ESP32</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:14px}
-.wrapper{width:100%;max-width:760px;margin:0 auto}
-.card{background:#1a212b;border:1px solid #2d3746;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:12px}
+.wrapper{width:100%;max-width:920px;margin:0 auto}
+.card{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px;margin-bottom:10px}
 .header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.title{font-size:30px;font-weight:800;letter-spacing:.5px}
-.status{padding:8px 14px;border-radius:999px;font-size:15px;font-weight:700}
+.title{font-size:26px;font-weight:800;letter-spacing:.4px}
+.status{padding:7px 12px;border-radius:999px;font-size:14px;font-weight:700}
 .status-waiting{background:#2e3847;color:#d7e1ef}
 .status-run{background:#163b24;color:#65ef98}
 .status-error{background:#4b1717;color:#ff7c7c}
-.message{display:none!important;margin-top:12px;background:#121820;border:1px solid #334054;border-radius:14px;padding:12px;color:#dbe5f4;font-size:15px;line-height:1.35}
-.section-title{font-size:22px;font-weight:800;margin-bottom:14px;color:#dfe8f7}
-.measure-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.measure-item{background:#121820;border:1px solid #2b3443;border-radius:14px;padding:14px}
-.measure-label{font-size:14px;color:#98a6b8;margin-bottom:8px}
-.measure-value{font-size:28px;font-weight:800;color:#fff}
-.small-value{font-size:22px}
-.mode-list{display:flex;flex-direction:column;gap:12px}
-.mode-item{background:#121820;border:1px solid #2b3443;border-radius:14px;padding:14px}
-.mode-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-.mode-name{font-size:20px;font-weight:800}
-.mode-code{font-size:16px;color:#9eacc0}
-button{width:100%;border:none;border-radius:14px;padding:14px 12px;font-size:18px;font-weight:800;cursor:pointer;color:#fff}
+.message{display:none!important;margin-top:10px;background:#121820;border:1px solid #334054;border-radius:8px;padding:10px;color:#dbe5f4;font-size:14px;line-height:1.35}
+.section-title{font-size:18px;font-weight:800;margin-bottom:10px;color:#dfe8f7}
+.measure-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.measure-item{background:#121820;border:1px solid #2b3443;border-radius:6px;padding:10px}
+.measure-label{font-size:13px;color:#98a6b8;margin-bottom:6px}
+.measure-value{font-size:23px;font-weight:800;color:#fff}
+.small-value{font-size:20px}
+.mode-list{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.mode-item{background:#121820;border:1px solid #2b3443;border-radius:6px;padding:10px}
+.mode-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.mode-name{font-size:17px;font-weight:800}
+.mode-code{font-size:14px;color:#9eacc0}
+button{width:100%;border:none;border-radius:6px;padding:11px 10px;font-size:16px;font-weight:800;cursor:pointer;color:#fff}
 button:active{transform:scale(.99)}
 button:disabled{cursor:not-allowed;transform:none;opacity:.62}
 .btn-main{background:#188a47}
 .btn-neutral{background:#596273}
 .btn-danger{background:#c22b2b}
 .btn-reset{background:#2a7c37}
-.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.action-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .footer-note{text-align:center;color:#3a4452;font-size:13px;margin-top:10px;user-select:none}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;padding:16px;z-index:20}
-.modal{width:100%;max-width:460px;background:#1a212b;border:1px solid #334054;border-radius:18px;padding:18px}
-.modal-title{font-size:24px;font-weight:800;margin-bottom:16px}
-.form-row{margin-bottom:12px}
+.modal{width:100%;max-width:460px;background:#1a212b;border:1px solid #334054;border-radius:8px;padding:14px}
+.modal-title{font-size:21px;font-weight:800;margin-bottom:14px}
+.form-row{margin-bottom:10px}
 .form-row label{display:block;margin-bottom:6px;color:#9aa8bb;font-size:14px}
-input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;background:#121820;color:#fff;font-size:18px}
-.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+input{width:100%;padding:11px;border-radius:6px;border:1px solid #354153;background:#121820;color:#fff;font-size:16px}
+.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
 .confirm-text{color:#dbe5f4;line-height:1.5;margin-bottom:16px;font-size:16px}
-@media(max-width:640px){
-  .title{font-size:26px}
-  .measure-grid{grid-template-columns:1fr}
+@media(max-width:860px){
+  .measure-grid{grid-template-columns:1fr 1fr}
+  .mode-list{grid-template-columns:1fr}
   .action-grid{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .title{font-size:24px}
+  .measure-grid{grid-template-columns:1fr}
   .modal-actions{grid-template-columns:1fr}
-  .measure-value{font-size:26px}
-  .small-value{font-size:22px}
-  .mode-name{font-size:18px}
+  .measure-value{font-size:22px}
+  .small-value{font-size:19px}
 }
 </style>
 </head>
@@ -122,10 +125,10 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
       <div class="mode-item">
         <div class="mode-top">
-          <div class="mode-name">PI-регулятор</div>
+          <div class="mode-name">Отладка стенда</div>
           <div class="mode-code">debug</div>
         </div>
-        <button class="btn-neutral" onclick="location.href='/debug'">Коэффициенты и шаг PWM</button>
+        <button class="btn-neutral" onclick="location.href='/debug'">Настроить</button>
       </div>
     </div>
   </div>
@@ -134,8 +137,8 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
     <div class="section-title">Управление</div>
     <div class="action-grid">
       <button class="btn-neutral" onclick="sendCommand('off')">Остановить</button>
-      <button class="btn-danger" onclick="openEmergencyConfirm()">Аварийный стоп</button>
-      <button class="btn-reset" onclick="sendCommand('reset')">Сброс аварии</button>
+      <button class="btn-danger" onclick="openEmergencyConfirm()">Остановить аварийно</button>
+      <button class="btn-reset" onclick="sendCommand('reset')">Сбросить аварию</button>
     </div>
   </div>
 
@@ -152,7 +155,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
     <div class="form-row">
       <label>Vmin, В</label>
-      <input id="vminInput" type="number" step="0.1" min="0" value="42.0">
+      <input id="vminInput" type="number" step="0.1" min="0" max="1000" value="42.0">
     </div>
 
     <div class="form-row">
@@ -162,7 +165,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
     <div class="form-row">
       <label>Температура, °C</label>
-      <input id="tempInput" type="number" step="1" min="1" value="70">
+      <input id="tempInput" type="number" step="1" min="1" max="125" value="70">
     </div>
 
     <div class="modal-actions">
@@ -178,7 +181,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
     <div class="form-row">
       <label>P, Вт</label>
-      <input id="powerInput" type="number" step="1" min="1" value="100">
+      <input id="powerInput" type="number" step="1" min="1" max="100000" value="100">
     </div>
 
     <div class="form-row">
@@ -188,7 +191,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
     <div class="form-row">
       <label>Vmin, В</label>
-      <input id="pVminInput" type="number" step="0.1" min="0" value="42.0">
+      <input id="pVminInput" type="number" step="0.1" min="0" max="1000" value="42.0">
     </div>
 
     <div class="form-row">
@@ -198,7 +201,7 @@ input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;backgr
 
     <div class="form-row">
       <label>Температура, °C</label>
-      <input id="pTempInput" type="number" step="1" min="1" value="70">
+      <input id="pTempInput" type="number" step="1" min="1" max="125" value="70">
     </div>
 
     <div class="modal-actions">
@@ -230,6 +233,20 @@ function timeParams(){
   let epoch = Date.now();
   let tz = -new Date().getTimezoneOffset();
   return 'epoch=' + epoch + '&tz=' + tz;
+}
+
+function clampNumberInput(id, minValue, maxValue, fallbackValue, integerOnly = false){
+  const input = document.getElementById(id);
+  let value = Number(input.value);
+  if (!Number.isFinite(value)) {
+    value = fallbackValue;
+  }
+  value = Math.max(minValue, Math.min(maxValue, value));
+  if (integerOnly) {
+    value = Math.round(value);
+  }
+  input.value = String(value);
+  return input.value;
 }
 
 function updatePage(data){
@@ -357,10 +374,10 @@ function startIConst(){
   startRequestBusy = true;
   setButtonBusy('startIButton', true, 'Запуск...');
 
-  let i = document.getElementById('currentInput').value;
-  let vmin = document.getElementById('vminInput').value;
-  let t = document.getElementById('timeInput').value;
-  let temp = document.getElementById('tempInput').value;
+  let i = clampNumberInput('currentInput', 0.1, Number(document.getElementById('currentInput').max), 1.0);
+  let vmin = clampNumberInput('vminInput', 0.0, 1000.0, 0.0);
+  let t = clampNumberInput('timeInput', 1, 86400, 300, true);
+  let temp = clampNumberInput('tempInput', 1.0, 125.0, 70.0);
 
   let url = '/start?i=' + i +
             '&vmin=' + vmin +
@@ -388,11 +405,11 @@ function startPConst(){
   startRequestBusy = true;
   setButtonBusy('startPButton', true, 'Запуск...');
 
-  let p = document.getElementById('powerInput').value;
-  let imax = document.getElementById('imaxInput').value;
-  let vmin = document.getElementById('pVminInput').value;
-  let t = document.getElementById('pTimeInput').value;
-  let temp = document.getElementById('pTempInput').value;
+  let p = clampNumberInput('powerInput', 1.0, 100000.0, 10.0);
+  let imax = clampNumberInput('imaxInput', 0.1, Number(document.getElementById('imaxInput').max), 1.0);
+  let vmin = clampNumberInput('pVminInput', 0.0, 1000.0, 0.0);
+  let t = clampNumberInput('pTimeInput', 1, 86400, 300, true);
+  let temp = clampNumberInput('pTempInput', 1.0, 125.0, 70.0);
 
   let url = '/startp?p=' + p +
             '&imax=' + imax +
@@ -456,30 +473,33 @@ const char DEBUG_HTML[] PROGMEM = R"rawliteral(
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:14px}
 .wrapper{width:100%;max-width:760px;margin:0 auto}
-.card{background:#1a212b;border:1px solid #2d3746;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.card{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:16px;margin-bottom:14px}
 .header{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .title{font-size:28px;font-weight:800;letter-spacing:.3px}
 .back{color:#9db5d4;text-decoration:none;font-weight:800}
 .section-title{font-size:22px;font-weight:800;margin-bottom:14px;color:#dfe8f7}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.field{background:#121820;border:1px solid #2b3443;border-radius:14px;padding:14px}
+.field{background:#121820;border:1px solid #2b3443;border-radius:6px;padding:14px}
 label{display:block;font-size:16px;font-weight:800;margin-bottom:6px;color:#fff}
 .hint{min-height:38px;color:#9eacc0;font-size:14px;line-height:1.35;margin-bottom:10px}
-input{width:100%;padding:13px;border-radius:12px;border:1px solid #354153;background:#0f151d;color:#fff;font-size:18px}
-.diag-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.diag-item{background:#121820;border:1px solid #2b3443;border-radius:14px;padding:12px}
-.diag-label{font-size:13px;color:#9eacc0;margin-bottom:5px}
-.diag-value{font-size:20px;font-weight:800;color:#fff;word-break:break-word}
-button{width:100%;border:none;border-radius:14px;padding:14px 12px;font-size:18px;font-weight:800;cursor:pointer;color:#fff}
+input{width:100%;padding:13px;border-radius:6px;border:1px solid #354153;background:#0f151d;color:#fff;font-size:18px}
+.diag-table{width:100%;border-collapse:collapse;background:#121820;border:1px solid #2b3443;border-radius:6px;overflow:hidden}
+.diag-table th,.diag-table td{padding:10px 12px;border-bottom:1px solid #2b3443;text-align:left}
+.diag-table tr:last-child th,.diag-table tr:last-child td{border-bottom:none}
+.diag-table th{width:48%;color:#9eacc0;font-size:13px;font-weight:800}
+.diag-table td{color:#fff;font-size:18px;font-weight:800;word-break:break-word}
+button{width:100%;border:none;border-radius:6px;padding:14px 12px;font-size:18px;font-weight:800;cursor:pointer;color:#fff}
 button:active{transform:scale(.99)}
 .btn-main{background:#188a47}
 .btn-neutral{background:#596273}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.message{display:none;background:#121820;border:1px solid #334054;border-radius:14px;padding:12px;color:#dbe5f4;font-size:15px;line-height:1.35;margin-bottom:14px}
+.message{display:none;background:#121820;border:1px solid #334054;border-radius:8px;padding:12px;color:#dbe5f4;font-size:15px;line-height:1.35;margin-bottom:14px}
 @media(max-width:640px){
   .title{font-size:24px}
   .field-grid{grid-template-columns:1fr}
-  .diag-grid{grid-template-columns:1fr 1fr}
+  .diag-table th,.diag-table td{display:block;width:100%}
+  .diag-table th{padding-bottom:4px}
+  .diag-table td{padding-top:0}
   .actions{grid-template-columns:1fr}
 }
 </style>
@@ -501,12 +521,12 @@ button:active{transform:scale(.99)}
       <div class="field">
         <label for="kpI">kpI</label>
         <div class="hint">P-часть тока: реагирует на изменение ошибки и помогает быстрее подойти к заданному току.</div>
-        <input id="kpI" type="number" step="0.01" min="0">
+        <input id="kpI" type="number" step="0.01" min="0" max="20">
       </div>
       <div class="field">
         <label for="kiI">kiI</label>
         <div class="hint">I-часть тока: постепенно дотягивает PWM, пока ток отличается от заданного.</div>
-        <input id="kiI" type="number" step="0.01" min="0">
+        <input id="kiI" type="number" step="0.01" min="0" max="50">
       </div>
     </div>
   </div>
@@ -517,12 +537,12 @@ button:active{transform:scale(.99)}
       <div class="field">
         <label for="kpP">kpP</label>
         <div class="hint">P-часть мощности: реагирует на изменение ошибки по мощности.</div>
-        <input id="kpP" type="number" step="0.001" min="0">
+        <input id="kpP" type="number" step="0.001" min="0" max="20">
       </div>
       <div class="field">
         <label for="kiP">kiP</label>
         <div class="hint">I-часть мощности: плавно дотягивает нагрузку до заданной мощности.</div>
-        <input id="kiP" type="number" step="0.001" min="0">
+        <input id="kiP" type="number" step="0.001" min="0" max="50">
       </div>
     </div>
   </div>
@@ -533,62 +553,62 @@ button:active{transform:scale(.99)}
       <div class="field">
         <label for="stepUp">PWM_STEP_UP_MAX</label>
         <div class="hint">Максимальный шаг роста PWM за один цикл управления. Ограничивает резкое открытие MOSFET.</div>
-        <input id="stepUp" type="number" step="0.1" min="0.01">
+        <input id="stepUp" type="number" step="0.1" min="0.01" max="255">
       </div>
       <div class="field">
         <label for="stepDown">PWM_STEP_DOWN_MAX</label>
         <div class="hint">Максимальный шаг снижения PWM за один цикл. Позволяет быстрее уменьшать ток при превышении.</div>
-        <input id="stepDown" type="number" step="0.1" min="0.01">
+        <input id="stepDown" type="number" step="0.1" min="0.01" max="255">
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="section-title">PWM / MOSFET / protections</div>
+    <div class="section-title">PWM / MOSFET / защиты</div>
     <div class="field-grid">
       <div class="field">
-        <label for="loadOutputEnabled">ENABLE_LOAD_OUTPUT</label>
-        <div class="hint">1 = real PWM to MOSFET, 0 = force output to 0.</div>
+        <label for="loadOutputEnabled">Выход нагрузки</label>
+        <div class="hint">1 = реальный PWM подаётся на MOSFET, 0 = выход принудительно держится в нуле.</div>
         <input id="loadOutputEnabled" type="number" step="1" min="0" max="1">
       </div>
       <div class="field">
-        <label for="voltageProtectionEnabled">ENABLE_VOLTAGE_PROTECTION</label>
-        <div class="hint">1 = stop by Vmin, 0 = low-voltage protection off.</div>
+        <label for="voltageProtectionEnabled">Защита по Vmin</label>
+        <div class="hint">1 = остановка при просадке ниже Vmin, 0 = защита по входному напряжению отключена.</div>
         <input id="voltageProtectionEnabled" type="number" step="1" min="0" max="1">
       </div>
       <div class="field">
-        <label for="pwmMin">PWM_MIN</label>
-        <div class="hint">Minimum non-zero PWM. Stop still writes 0.</div>
-        <input id="pwmMin" type="number" step="1" min="0">
+        <label for="pwmMin">Минимальный PWM нагрузки</label>
+        <div class="hint">Минимальное ненулевое значение PWM. Команда остановки всё равно записывает 0.</div>
+        <input id="pwmMin" type="number" step="1" min="0" max="65535">
       </div>
       <div class="field">
-        <label for="pwmMax">PWM_MAX</label>
-        <div class="hint">Maximum PWM. For 8 bit usually 255.</div>
-        <input id="pwmMax" type="number" step="1" min="0">
+        <label for="pwmMax">Максимальный PWM нагрузки</label>
+        <div class="hint">Верхняя граница PWM. Для 8-битного режима обычно 255.</div>
+        <input id="pwmMax" type="number" step="1" min="0" max="65535">
       </div>
       <div class="field">
-        <label for="pwmFreq">PWM_FREQ_HZ</label>
-        <div class="hint">PWM frequency. Changing it resets load output.</div>
+        <label for="pwmFreq">Частота PWM, Гц</label>
+        <div class="hint">Частота управления MOSFET. При изменении выход нагрузки сбрасывается.</div>
         <input id="pwmFreq" type="number" step="1" min="1" max="40000">
       </div>
       <div class="field">
-        <label for="pwmResolution">PWM_RESOLUTION_BITS</label>
-        <div class="hint">PWM resolution. Changing it resets load output.</div>
+        <label for="pwmResolution">Разрешение PWM, бит</label>
+        <div class="hint">Разрядность PWM. При изменении выход нагрузки сбрасывается.</div>
         <input id="pwmResolution" type="number" step="1" min="1" max="16">
       </div>
       <div class="field">
-        <label for="maxTestCurrent">MAX_TEST_CURRENT_A</label>
-        <div class="hint">Top limit for I target and Imax while debugging.</div>
-        <input id="maxTestCurrent" type="number" step="0.1" min="0.1">
+        <label for="maxTestCurrent">Предельный ток настройки, А</label>
+        <div class="hint">Верхняя граница для задания тока в I = const и Imax в P = const.</div>
+        <input id="maxTestCurrent" type="number" step="0.1" min="0.1" max="1000">
       </div>
       <div class="field">
-        <label for="overCurrentFactor">OVER_CURRENT_FACTOR</label>
-        <div class="hint">Overcurrent multiplier in I = const mode.</div>
-        <input id="overCurrentFactor" type="number" step="0.01" min="1">
+        <label for="overCurrentFactor">Коэффициент аварии по току</label>
+        <div class="hint">Множитель для аварии OVER_CURRENT в режиме I = const.</div>
+        <input id="overCurrentFactor" type="number" step="0.01" min="1" max="10">
       </div>
       <div class="field">
-        <label for="overCurrentConfirmCount">OVER_CURRENT_CONFIRM_COUNT</label>
-        <div class="hint">Control cycles above limit before alarm.</div>
+        <label for="overCurrentConfirmCount">Подтверждение аварии по току</label>
+        <div class="hint">Сколько циклов подряд ток должен быть выше предела перед аварией.</div>
         <input id="overCurrentConfirmCount" type="number" step="1" min="1" max="100">
       </div>
     </div>
@@ -609,48 +629,48 @@ button:active{transform:scale(.99)}
     <div class="section-title">Измерение тока и напряжения</div>
     <div class="field-grid">
       <div class="field">
-        <label for="currentK">currentK</label>
+        <label for="currentK">Коэффициент тока currentK</label>
         <div class="hint">Коэффициент пересчёта разницы ADC в ток. Удобно менять при подборе шунта и усилителя.</div>
         <input id="currentK" type="number" step="0.00001" min="0.00001" max="10">
       </div>
       <div class="field">
-        <label for="voltageK">voltageK</label>
+        <label for="voltageK">Коэффициент напряжения voltageK</label>
         <div class="hint">Коэффициент делителя входного напряжения. Увеличить, если ESP32 показывает меньше реального.</div>
         <input id="voltageK" type="number" step="0.001" min="0.001" max="500">
       </div>
       <div class="field">
-        <label for="adcRefVoltage">ADC_REF_VOLTAGE</label>
-        <div class="hint">ADC reference voltage used for raw-to-volt conversion.</div>
+        <label for="adcRefVoltage">Опорное напряжение ADC, В</label>
+        <div class="hint">Напряжение, через которое сырые значения ADC пересчитываются в вольты.</div>
         <input id="adcRefVoltage" type="number" step="0.001" min="0.1" max="5">
       </div>
       <div class="field">
-        <label for="adcMaxValue">ADC_MAX_VALUE</label>
-        <div class="hint">Maximum ADC raw code. For 12 bit usually 4095.</div>
+        <label for="adcMaxValue">Максимальный код ADC</label>
+        <div class="hint">Верхнее сырое значение ADC. Для 12 бит обычно 4095.</div>
         <input id="adcMaxValue" type="number" step="1" min="1" max="65535">
       </div>
       <div class="field">
-        <label for="analogAverageSamples">ADC_AVERAGE_SAMPLES</label>
-        <div class="hint">New P/N sample pairs read on each sensor update.</div>
+        <label for="analogAverageSamples">Усреднение ADC</label>
+        <div class="hint">Сколько новых пар P/N читается при одном обновлении датчиков.</div>
         <input id="analogAverageSamples" type="number" step="1" min="1" max="512">
       </div>
       <div class="field">
-        <label for="movingAverageSamples">ADC_MOVING_AVERAGE_SAMPLES</label>
-        <div class="hint">Moving-average buffer length for raw P/N pairs.</div>
+        <label for="movingAverageSamples">Глубина скользящего среднего</label>
+        <div class="hint">Размер буфера скользящего среднего для сырых пар P/N.</div>
         <input id="movingAverageSamples" type="number" step="1" min="1" max="512">
       </div>
       <div class="field">
-        <label for="filterK">FILTER_K</label>
-        <div class="hint">Measurement filter factor. Higher = faster, noisier.</div>
+        <label for="filterK">Коэффициент фильтра измерений</label>
+        <div class="hint">Чем больше значение, тем быстрее реакция и тем больше видимый шум.</div>
         <input id="filterK" type="number" step="0.01" min="0.01" max="1">
       </div>
       <div class="field">
-        <label for="currentZeroSamples">CURRENT_ZERO_SAMPLES</label>
-        <div class="hint">Sample count for current auto-zero before start.</div>
+        <label for="currentZeroSamples">Измерения автонуля тока</label>
+        <div class="hint">Сколько измерений используется для автокалибровки нуля перед стартом режима.</div>
         <input id="currentZeroSamples" type="number" step="1" min="1" max="500">
       </div>
       <div class="field">
-        <label for="currentZeroStabilityRaw">CURRENT_ZERO_STABILITY_RAW</label>
-        <div class="hint">Maximum raw spread allowed during auto-zero.</div>
+        <label for="currentZeroStabilityRaw">Допустимый разброс автонуля</label>
+        <div class="hint">Максимальный сырой разброс сигнала при автокалибровке нуля тока.</div>
         <input id="currentZeroStabilityRaw" type="number" step="1" min="1" max="4095">
       </div>
     </div>
@@ -658,21 +678,23 @@ button:active{transform:scale(.99)}
 
   <div class="card">
     <div class="section-title">Диагностика схемы</div>
-    <div class="diag-grid">
-      <div class="diag-item"><div class="diag-label">Ток</div><div id="dbgCurrent" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Напряжение</div><div id="dbgVoltage" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Мощность</div><div id="dbgPower" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Температура</div><div id="dbgTemp" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">PWM</div><div id="dbgPwm" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Режим</div><div id="dbgMode" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Current diff raw</div><div id="dbgCurrentDiff" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Current raw P</div><div id="dbgCurrentRawP" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Current raw N</div><div id="dbgCurrentRawN" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Zero raw</div><div id="dbgCurrentZero" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Voltage diff raw</div><div id="dbgVoltageDiff" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Voltage raw P</div><div id="dbgVoltageRawP" class="diag-value">--</div></div>
-      <div class="diag-item"><div class="diag-label">Voltage raw N</div><div id="dbgVoltageRawN" class="diag-value">--</div></div>
-    </div>
+    <table class="diag-table">
+      <tbody>
+        <tr><th>Ток</th><td id="dbgCurrent">--</td></tr>
+        <tr><th>Напряжение</th><td id="dbgVoltage">--</td></tr>
+        <tr><th>Мощность</th><td id="dbgPower">--</td></tr>
+        <tr><th>Температура</th><td id="dbgTemp">--</td></tr>
+        <tr><th>PWM</th><td id="dbgPwm">--</td></tr>
+        <tr><th>Режим</th><td id="dbgMode">--</td></tr>
+        <tr><th>Сырая разница тока</th><td id="dbgCurrentDiff">--</td></tr>
+        <tr><th>Сырой вход тока P</th><td id="dbgCurrentRawP">--</td></tr>
+        <tr><th>Сырой вход тока N</th><td id="dbgCurrentRawN">--</td></tr>
+        <tr><th>Ноль тока raw</th><td id="dbgCurrentZero">--</td></tr>
+        <tr><th>Сырая разница напряжения</th><td id="dbgVoltageDiff">--</td></tr>
+        <tr><th>Сырой вход напряжения P</th><td id="dbgVoltageRawP">--</td></tr>
+        <tr><th>Сырой вход напряжения N</th><td id="dbgVoltageRawN">--</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="card">
@@ -707,6 +729,7 @@ function setValues(data){
   document.getElementById('pwmMax').value = Number(data.pwmMax);
   document.getElementById('pwmFreq').value = Number(data.pwmFreq);
   document.getElementById('pwmResolution').value = Number(data.pwmResolution);
+  setPwmInputLimits(Number(data.pwmResolution));
   document.getElementById('currentK').value = Number(data.currentK).toFixed(5);
   document.getElementById('voltageK').value = Number(data.voltageK).toFixed(3);
   document.getElementById('adcRefVoltage').value = Number(data.adcRefVoltage).toFixed(3);
@@ -717,6 +740,29 @@ function setValues(data){
   document.getElementById('currentZeroSamples').value = Number(data.currentZeroSamples);
   document.getElementById('currentZeroStabilityRaw').value = Number(data.currentZeroStabilityRaw).toFixed(1);
   updateDiagnostics(data);
+}
+
+function pwmMaxForResolution(bits){
+  let value = Number(bits);
+  if (!Number.isFinite(value)) {
+    value = 8;
+  }
+  value = Math.max(1, Math.min(16, Math.floor(value)));
+  return value >= 16 ? 65535 : Math.pow(2, value) - 1;
+}
+
+function setPwmInputLimits(bits){
+  const maxValue = pwmMaxForResolution(bits);
+  const minInput = document.getElementById('pwmMin');
+  const maxInput = document.getElementById('pwmMax');
+  minInput.max = String(maxValue);
+  maxInput.max = String(maxValue);
+  if (Number(minInput.value) > maxValue) {
+    minInput.value = maxValue;
+  }
+  if (Number(maxInput.value) > maxValue) {
+    maxInput.value = maxValue;
+  }
 }
 
 function setDiag(id, value){
@@ -757,7 +803,52 @@ function valueParam(id){
   return encodeURIComponent(document.getElementById(id).value);
 }
 
+function clampDebugInput(id, minValue, maxValue, fallbackValue, integerOnly = false){
+  const input = document.getElementById(id);
+  let value = Number(input.value);
+  if (!Number.isFinite(value)) {
+    value = fallbackValue;
+  }
+  value = Math.max(minValue, Math.min(maxValue, value));
+  if (integerOnly) {
+    value = Math.round(value);
+  }
+  input.value = String(value);
+}
+
+function normalizeDebugInputs(){
+  clampDebugInput('kpI', 0.0, 20.0, 0.0);
+  clampDebugInput('kiI', 0.0, 50.0, 0.0);
+  clampDebugInput('kpP', 0.0, 20.0, 0.0);
+  clampDebugInput('kiP', 0.0, 50.0, 0.0);
+  clampDebugInput('stepUp', 0.01, 255.0, 1.0);
+  clampDebugInput('stepDown', 0.01, 255.0, 1.0);
+  clampDebugInput('fanOnTemp', 0.0, 120.0, 60.0);
+  clampDebugInput('maxTestCurrent', 0.1, 1000.0, 5.0);
+  clampDebugInput('overCurrentFactor', 1.0, 10.0, 1.25);
+  clampDebugInput('overCurrentConfirmCount', 1, 100, 3, true);
+  clampDebugInput('loadOutputEnabled', 0, 1, 0, true);
+  clampDebugInput('voltageProtectionEnabled', 0, 1, 1, true);
+  clampDebugInput('pwmResolution', 1, 16, 8, true);
+  setPwmInputLimits(document.getElementById('pwmResolution').value);
+  const pwmMax = pwmMaxForResolution(document.getElementById('pwmResolution').value);
+  clampDebugInput('pwmMin', 0, pwmMax, 0, true);
+  clampDebugInput('pwmMax', 0, pwmMax, pwmMax, true);
+  clampDebugInput('pwmFreq', 1, 40000, 5000, true);
+  clampDebugInput('currentK', 0.00001, 10.0, 0.03931);
+  clampDebugInput('voltageK', 0.001, 500.0, 1.0);
+  clampDebugInput('adcRefVoltage', 0.1, 5.0, 3.3);
+  clampDebugInput('adcMaxValue', 1, 65535, 4095, true);
+  clampDebugInput('analogAverageSamples', 1, 512, 10, true);
+  clampDebugInput('movingAverageSamples', 1, 512, 10, true);
+  clampDebugInput('filterK', 0.01, 1.0, 0.2);
+  clampDebugInput('currentZeroSamples', 1, 500, 50, true);
+  clampDebugInput('currentZeroStabilityRaw', 1.0, 4095.0, 40.0);
+}
+
 function saveDebug(){
+  normalizeDebugInputs();
+
   let url = '/debugsave?kpI=' + valueParam('kpI') +
             '&kiI=' + valueParam('kiI') +
             '&kpP=' + valueParam('kpP') +
@@ -804,6 +895,9 @@ function resetDebug(){
 }
 
 window.onload = function(){
+  document.getElementById('pwmResolution').addEventListener('input', function(){
+    setPwmInputLimits(this.value);
+  });
   loadDebug();
   setInterval(refreshDiagnostics, 1000);
 };

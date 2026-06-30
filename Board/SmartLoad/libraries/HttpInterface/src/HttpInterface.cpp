@@ -345,8 +345,8 @@ void HttpInterface::handleDebugSave() {
   float maxTestCurrent = web->hasArg("maxTestCurrent") ? web->arg("maxTestCurrent").toFloat() : loadController->getMaxTestCurrent();
   float overCurrentFactor = web->hasArg("overCurrentFactor") ? web->arg("overCurrentFactor").toFloat() : loadController->getOverCurrentFactor();
   int overCurrentConfirmCount = web->hasArg("overCurrentConfirmCount") ? web->arg("overCurrentConfirmCount").toInt() : loadController->getOverCurrentConfirmCount();
-  bool loadOutputEnabled = web->hasArg("loadOutputEnabled") ? web->arg("loadOutputEnabled").toInt() != 0 : loadController->isLoadOutputEnabled();
-  bool voltageProtectionEnabled = web->hasArg("voltageProtectionEnabled") ? web->arg("voltageProtectionEnabled").toInt() != 0 : loadController->isVoltageProtectionEnabled();
+  bool loadOutputEnabled = web->hasArg("loadOutputEnabled") ? web->arg("loadOutputEnabled").toInt() == 1 : loadController->isLoadOutputEnabled();
+  bool voltageProtectionEnabled = web->hasArg("voltageProtectionEnabled") ? web->arg("voltageProtectionEnabled").toInt() == 1 : loadController->isVoltageProtectionEnabled();
   int pwmMin = web->hasArg("pwmMin") ? web->arg("pwmMin").toInt() : loadController->getPwmMinLimit();
   int pwmMax = web->hasArg("pwmMax") ? web->arg("pwmMax").toInt() : loadController->getPwmMaxLimit();
   int pwmFreq = web->hasArg("pwmFreq") ? web->arg("pwmFreq").toInt() : loadController->getPwmFrequencyHz();

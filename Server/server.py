@@ -44,41 +44,45 @@ MAX_CHART_POINTS = 8000
 
 
 INDEX_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SmartLoad Telemetry</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#10151c;color:#edf2f7;font-family:Arial,sans-serif}
+body{margin:0;background:#11161d;color:#eef2f7;font-family:Arial,sans-serif}
 .wrap{max-width:1180px;margin:0 auto;padding:16px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:28px;margin:0}
-.status{color:#aab7c8;font-size:14px}
+.status{color:#98a6b8;font-size:14px}
 .cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
-.card{background:#18202b;border:1px solid #2b3646;border-radius:8px;padding:12px}
-.label{color:#92a0b3;font-size:13px;margin-bottom:6px}
+.card{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px}
+.label{color:#98a6b8;font-size:13px;margin-bottom:6px}
 .value{font-size:23px;font-weight:800;white-space:nowrap}
 .time-value{font-size:18px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.chart{background:#18202b;border:1px solid #2b3646;border-radius:8px;padding:12px}
+.chart{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px}
 .chart h2{font-size:17px;margin:0 0 8px}
 canvas{width:100%;height:240px;display:block}
-.chart-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#18202b;border:1px solid #2b3646;border-radius:8px;padding:12px;margin-bottom:14px}
+.chart-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px;margin-bottom:14px}
 .chart-controls-title{font-size:17px;font-weight:800}
-.chart-controls-subtitle{color:#92a0b3;font-size:13px;margin-top:3px}
+.chart-controls-subtitle{color:#9eacc0;font-size:13px;margin-top:3px}
+.control-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.refresh-button{background:#121820;color:#eef2f7;border:1px solid #354153;border-radius:6px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
+.refresh-button:hover{border-color:#596273;background:#1a212b}
+.refresh-button:disabled{opacity:.62;cursor:not-allowed}
 .period-select{position:relative}
-.period-button{display:flex;align-items:center;gap:10px;min-width:190px;background:#10151c;color:#edf2f7;border:1px solid #344257;border-radius:8px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
-.period-button:hover{border-color:#52637a;background:#151c25}
-.period-arrow{margin-left:auto;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #b7c3d3}
-.period-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);width:210px;background:#18202b;border:1px solid #344257;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.38);padding:6px;z-index:10}
+.period-button{display:flex;align-items:center;gap:10px;min-width:190px;background:#121820;color:#eef2f7;border:1px solid #354153;border-radius:6px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
+.period-button:hover{border-color:#596273;background:#1a212b}
+.period-arrow{margin-left:auto;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #d7e1ef}
+.period-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);width:210px;background:#1a212b;border:1px solid #354153;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);padding:6px;z-index:10}
 .period-select.open .period-menu{display:block}
 .period-option{width:100%;border:none;background:transparent;color:#dbe5f4;text-align:left;padding:10px 11px;border-radius:6px;font-size:14px;cursor:pointer}
-.period-option:hover{background:#263244}
-.period-option.active{background:#2f4158;color:#fff}
+.period-option:hover{background:#2e3847}
+.period-option.active{background:#596273;color:#fff}
 @media(max-width:980px){.cards{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:820px){.chart-controls{align-items:stretch;flex-direction:column}.period-button{width:100%}.period-menu{left:0;right:auto;width:100%}.grid{grid-template-columns:1fr}}
+@media(max-width:820px){.chart-controls{align-items:stretch;flex-direction:column}.control-row{align-items:stretch;flex-direction:column}.refresh-button,.period-button{width:100%}.period-menu{left:0;right:auto;width:100%}.grid{grid-template-columns:1fr}}
 @media(max-width:560px){.cards{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -86,7 +90,7 @@ canvas{width:100%;height:240px;display:block}
 <div class="wrap">
   <div class="top">
     <h1>SmartLoad ESP32 Telemetry</h1>
-    <div class="status" id="status">waiting for data...</div>
+    <div class="status" id="status">ожидание данных...</div>
   </div>
 
   <div class="cards">
@@ -103,24 +107,27 @@ canvas{width:100%;height:240px;display:block}
       <div class="chart-controls-title">Период графиков</div>
       <div class="chart-controls-subtitle">Выберите, какой участок телеметрии показать ниже</div>
     </div>
-    <div class="period-select" id="periodSelect">
-      <button class="period-button" id="periodButton" type="button">
-        <span id="periodLabel">За 10 минут</span>
-        <span class="period-arrow"></span>
-      </button>
-      <div class="period-menu" id="periodMenu">
-        <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
-        <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
-        <button class="period-option" type="button" data-range="all">За всё время</button>
+    <div class="control-row">
+      <button class="refresh-button" id="refreshButton" type="button">Обновить</button>
+      <div class="period-select" id="periodSelect">
+        <button class="period-button" id="periodButton" type="button">
+          <span id="periodLabel">За 10 минут</span>
+          <span class="period-arrow"></span>
+        </button>
+        <div class="period-menu" id="periodMenu">
+          <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
+          <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
+          <button class="period-option" type="button" data-range="all">За всё время</button>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="grid">
-    <div class="chart"><h2>Current, A</h2><canvas id="chartCurrent"></canvas></div>
-    <div class="chart"><h2>Voltage, V</h2><canvas id="chartVoltage"></canvas></div>
-    <div class="chart"><h2>Power, W</h2><canvas id="chartPower"></canvas></div>
-    <div class="chart"><h2>Temperature, C</h2><canvas id="chartTemp"></canvas></div>
+    <div class="chart"><h2>Ток, А</h2><canvas id="chartCurrent"></canvas></div>
+    <div class="chart"><h2>Напряжение, В</h2><canvas id="chartVoltage"></canvas></div>
+    <div class="chart"><h2>Мощность, Вт</h2><canvas id="chartPower"></canvas></div>
+    <div class="chart"><h2>Температура, °C</h2><canvas id="chartTemp"></canvas></div>
   </div>
 </div>
 
@@ -180,23 +187,25 @@ function drawChart(id, rows, field, color){
   const values = rows.map(r => num(r[field])).filter(v => v !== null);
   if (!values.length) {
     ctx.fillStyle = '#7f8da0';
-    ctx.fillText('No data yet', padL, 34);
+    ctx.fillText('Нет данных', padL, 34);
     return;
   }
 
-  let min = Math.min(...values);
-  let max = Math.max(...values);
-  if (min === max) {
-    min -= 1;
-    max += 1;
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  let plotMin = dataMin;
+  let plotMax = dataMax;
+  if (plotMin === plotMax) {
+    plotMin -= 1;
+    plotMax += 1;
   }
-  const span = max - min;
-  min -= span * 0.08;
-  max += span * 0.08;
+  const span = plotMax - plotMin;
+  plotMin -= span * 0.08;
+  plotMax += span * 0.08;
 
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
-  const y = v => padT + (max - v) / (max - min) * plotH;
+  const y = v => padT + (plotMax - v) / (plotMax - plotMin) * plotH;
   const x = i => padL + (rows.length <= 1 ? 0 : i / (rows.length - 1) * plotW);
 
   ctx.strokeStyle = '#334257';
@@ -210,8 +219,8 @@ function drawChart(id, rows, field, color){
   ctx.fillStyle = '#91a0b3';
   ctx.font = '12px Arial';
   ctx.textAlign = 'right';
-  ctx.fillText(max.toFixed(2), padL - 7, padT + 10);
-  ctx.fillText(min.toFixed(2), padL - 7, padT + plotH);
+  ctx.fillText(dataMax.toFixed(2), padL - 7, padT + 10);
+  ctx.fillText(dataMin.toFixed(2), padL - 7, padT + plotH);
 
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
@@ -300,7 +309,7 @@ function isPeriodMenuOpen(){
 
 function scheduleRefresh(delay){
   if (refreshTimer) clearTimeout(refreshTimer);
-  const periodMs = selectedPeriod === 'all' ? 500 : 100;
+  const periodMs = selectedPeriod === 'all' ? 5000 : 2000;
   const now = performance.now();
 
   if (delay !== undefined) {
@@ -317,29 +326,32 @@ function scheduleRefresh(delay){
 
 async function refresh(force){
   if (!force && isPeriodMenuOpen()) {
-    scheduleRefresh(200);
+    scheduleRefresh(500);
     return;
   }
 
   if (refreshInFlight) {
-    scheduleRefresh();
+    if (!force) scheduleRefresh();
     return;
   }
 
   refreshInFlight = true;
+  const refreshButton = document.getElementById('refreshButton');
+  if (refreshButton) refreshButton.disabled = true;
   try {
     const res = await fetch('/api/data?range=' + encodeURIComponent(selectedPeriod));
     const data = await res.json();
     const rows = data.rows || [];
     document.getElementById('status').textContent =
-      rows.length ? ('rows: ' + data.total_rows + ', latest: ' + rows[rows.length - 1].received_at)
-                  : 'waiting for data...';
+      rows.length ? ('строк: ' + data.total_rows + ', последняя: ' + rows[rows.length - 1].received_at)
+                  : 'ожидание данных...';
     if (rows.length) updateCards(rows[rows.length - 1]);
     charts.forEach(c => drawChart(c.id, rows, c.field, c.color));
   } catch (e) {
-    document.getElementById('status').textContent = 'server connection error';
+    document.getElementById('status').textContent = 'ошибка соединения с сервером';
   } finally {
     refreshInFlight = false;
+    if (refreshButton) refreshButton.disabled = false;
     scheduleRefresh();
   }
 }
@@ -348,6 +360,10 @@ window.addEventListener('resize', () => refresh(true));
 document.getElementById('periodButton').addEventListener('click', event => {
   event.stopPropagation();
   togglePeriodMenu();
+});
+document.getElementById('refreshButton').addEventListener('click', () => {
+  nextRefreshAt = 0;
+  refresh(true);
 });
 document.querySelectorAll('.period-option').forEach(button => {
   button.addEventListener('click', event => {

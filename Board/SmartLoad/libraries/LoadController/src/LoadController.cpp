@@ -213,7 +213,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
 
     float dt = CONTROL_PERIOD_MS / 1000.0;
     pwmCurrent += calculateIncrementalPi(targetCurrentA, currentA, currentKp, currentKi, currentLastError, dt);
-    pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+    pwmCurrent = limitFloat(pwmCurrent, (float)pwmMinLimit, (float)pwmMaxLimit);
     writeLoadPwm((int)pwmCurrent);
   }
 
@@ -232,7 +232,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
 
     float dt = CONTROL_PERIOD_MS / 1000.0;
     pwmCurrent += calculateIncrementalPi(targetPowerW, powerW, powerKp, powerKi, powerLastError, dt);
-    pwmCurrent = limitFloat(pwmCurrent, PWM_MIN, PWM_MAX);
+    pwmCurrent = limitFloat(pwmCurrent, (float)pwmMinLimit, (float)pwmMaxLimit);
     writeLoadPwm((int)pwmCurrent);
   }
 
@@ -348,18 +348,6 @@ void LoadController::setDebugLimits(float maxCurrent, float overCurrentFactorVal
 }
 
 void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution) {
-  if (pwmMin < 0) {
-    pwmMin = 0;
-  }
-
-  if (pwmMax > 65535) {
-    pwmMax = 65535;
-  }
-
-  if (pwmMax < pwmMin) {
-    pwmMax = pwmMin;
-  }
-
   if (pwmFreq < 1) {
     pwmFreq = 1;
   }
@@ -374,6 +362,28 @@ void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtectio
 
   if (pwmResolution > 16) {
     pwmResolution = 16;
+  }
+
+  int pwmResolutionMax = pwmResolution >= 16 ? 65535 : ((1 << pwmResolution) - 1);
+
+  if (pwmMin < 0) {
+    pwmMin = 0;
+  }
+
+  if (pwmMin > pwmResolutionMax) {
+    pwmMin = pwmResolutionMax;
+  }
+
+  if (pwmMax < 0) {
+    pwmMax = 0;
+  }
+
+  if (pwmMax > pwmResolutionMax) {
+    pwmMax = pwmResolutionMax;
+  }
+
+  if (pwmMax < pwmMin) {
+    pwmMax = pwmMin;
   }
 
   loadOutputEnabled = outputEnabled;
