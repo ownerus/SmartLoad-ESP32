@@ -43,6 +43,7 @@ private:
 
   float instantCurrent;
   float instantVoltage;
+  float instantPower;
   float currentRawP;
   float currentRawN;
   float voltageRawP;
@@ -51,6 +52,7 @@ private:
   float voltageDiffRaw;
   float filteredCurrent;
   float filteredVoltage;
+  float filteredPower;
   float measuredCurrent;
   float measuredVoltage;
   float measuredPower;
@@ -79,6 +81,11 @@ public:
   float getCurrentA();
   float getVoltageV();
   float getPowerW();
+  float getDisplayCurrentA();
+  float getDisplayPowerW();
+  float getInstantCurrentA();
+  float getInstantVoltageV();
+  float getInstantPowerW();
   float getTemperatureC();
   float getCurrentZeroRaw();
   float getCurrentRawP();

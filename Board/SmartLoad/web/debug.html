@@ -216,8 +216,11 @@ button:active{transform:scale(.99)}
     <table class="diag-table">
       <tbody>
         <tr><th>Ток</th><td id="dbgCurrent">--</td></tr>
+        <tr><th>Быстрый ток</th><td id="dbgInstantCurrent">--</td></tr>
         <tr><th>Напряжение</th><td id="dbgVoltage">--</td></tr>
+        <tr><th>Быстрое напряжение</th><td id="dbgInstantVoltage">--</td></tr>
         <tr><th>Мощность</th><td id="dbgPower">--</td></tr>
+        <tr><th>Быстрая мощность</th><td id="dbgInstantPower">--</td></tr>
         <tr><th>Температура</th><td id="dbgTemp">--</td></tr>
         <tr><th>PWM</th><td id="dbgPwm">--</td></tr>
         <tr><th>Режим</th><td id="dbgMode">--</td></tr>
@@ -306,8 +309,11 @@ function setDiag(id, value){
 
 function updateDiagnostics(data){
   setDiag('dbgCurrent', Number(data.debugCurrent).toFixed(3) + ' А');
+  setDiag('dbgInstantCurrent', Number(data.instantCurrent).toFixed(3) + ' А');
   setDiag('dbgVoltage', Number(data.debugVoltage).toFixed(2) + ' В');
+  setDiag('dbgInstantVoltage', Number(data.instantVoltage).toFixed(2) + ' В');
   setDiag('dbgPower', Number(data.debugPower).toFixed(1) + ' Вт');
+  setDiag('dbgInstantPower', Number(data.instantPower).toFixed(1) + ' Вт');
   setDiag('dbgTemp', Number(data.debugTemp).toFixed(1) + ' °C');
   setDiag('dbgPwm', String(data.debugPwm));
   setDiag('dbgMode', String(data.debugMode));

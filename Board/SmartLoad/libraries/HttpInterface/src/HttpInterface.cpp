@@ -86,7 +86,7 @@ String HttpInterface::buildDataJson() {
   json += "\",";
 
   json += "\"current\":";
-  json += String(sensorSource->getCurrentA(), 3);
+  json += String(sensorSource->getDisplayCurrentA(), 3);
   json += ",";
 
   json += "\"voltage\":";
@@ -94,7 +94,7 @@ String HttpInterface::buildDataJson() {
   json += ",";
 
   json += "\"power\":";
-  json += String(sensorSource->getPowerW(), 1);
+  json += String(sensorSource->getDisplayPowerW(), 1);
   json += ",";
 
   json += "\"temp\":";
@@ -237,12 +237,24 @@ String HttpInterface::buildDebugDataJson() {
   json += sensorSource != nullptr ? String(sensorSource->getCurrentA(), 3) : "0";
   json += ",";
 
+  json += "\"instantCurrent\":";
+  json += sensorSource != nullptr ? String(sensorSource->getInstantCurrentA(), 3) : "0";
+  json += ",";
+
   json += "\"debugVoltage\":";
   json += sensorSource != nullptr ? String(sensorSource->getVoltageV(), 2) : "0";
   json += ",";
 
+  json += "\"instantVoltage\":";
+  json += sensorSource != nullptr ? String(sensorSource->getInstantVoltageV(), 2) : "0";
+  json += ",";
+
   json += "\"debugPower\":";
   json += sensorSource != nullptr ? String(sensorSource->getPowerW(), 1) : "0";
+  json += ",";
+
+  json += "\"instantPower\":";
+  json += sensorSource != nullptr ? String(sensorSource->getInstantPowerW(), 1) : "0";
   json += ",";
 
   json += "\"debugTemp\":";

@@ -67,7 +67,7 @@ public:
   LoadController();
 
   void begin();
-  void update(float currentA, float voltageV, float powerW, float temperatureC);
+  void update(float currentA, float voltageV, float powerW, float temperatureC, float protectionCurrentA, float dtSec);
   bool startIConst(float currentSet, float voltageMin, int timeSec, float temperatureMax);
   bool startPConst(float powerSet, float currentMax, float voltageMin, int timeSec, float temperatureMax);
   void stop();

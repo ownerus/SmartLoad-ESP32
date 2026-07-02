@@ -28,6 +28,7 @@ Sensors::Sensors() :
   voltageAverageCount(0),
   instantCurrent(0.0),
   instantVoltage(0.0),
+  instantPower(0.0),
   currentRawP(0.0),
   currentRawN(0.0),
   voltageRawP(0.0),
@@ -36,6 +37,7 @@ Sensors::Sensors() :
   voltageDiffRaw(0.0),
   filteredCurrent(0.0),
   filteredVoltage(0.0),
+  filteredPower(0.0),
   measuredCurrent(0.0),
   measuredVoltage(0.0),
   measuredPower(0.0),
@@ -209,10 +211,6 @@ void Sensors::update() {
   sampleCurrentPairs(samplePairsPerUpdate);
   instantCurrent = (currentDiffRaw - zeroDiffRaw) * currentScale;
 
-  if (instantCurrent < 0.0) {
-    instantCurrent = 0.0;
-  }
-
   sampleVoltagePairs(samplePairsPerUpdate);
   float adcVoltage = voltageDiffRaw * adcRefVoltage / adcMaxValue;
 
@@ -222,18 +220,22 @@ void Sensors::update() {
     instantVoltage = 0.0;
   }
 
+  instantPower = instantVoltage * instantCurrent;
+
   if (!filterIsReady) {
     filteredCurrent = instantCurrent;
     filteredVoltage = instantVoltage;
+    filteredPower = instantPower;
     filterIsReady = true;
   } else {
     filteredCurrent = filteredCurrent + filterK * (instantCurrent - filteredCurrent);
     filteredVoltage = filteredVoltage + filterK * (instantVoltage - filteredVoltage);
+    filteredPower = filteredPower + filterK * (instantPower - filteredPower);
   }
 
   measuredCurrent = filteredCurrent;
   measuredVoltage = filteredVoltage;
-  measuredPower = measuredVoltage * measuredCurrent;
+  measuredPower = filteredPower;
 
   updateTemperature();
   updateCounter++;
@@ -242,6 +244,7 @@ void Sensors::update() {
 void Sensors::resetFilter() {
   instantCurrent = 0.0;
   instantVoltage = 0.0;
+  instantPower = 0.0;
   currentRawP = 0.0;
   currentRawN = 0.0;
   voltageRawP = 0.0;
@@ -250,6 +253,7 @@ void Sensors::resetFilter() {
   voltageDiffRaw = 0.0;
   filteredCurrent = 0.0;
   filteredVoltage = 0.0;
+  filteredPower = 0.0;
   measuredCurrent = 0.0;
   measuredVoltage = 0.0;
   measuredPower = 0.0;
@@ -267,6 +271,26 @@ float Sensors::getVoltageV() {
 
 float Sensors::getPowerW() {
   return measuredPower;
+}
+
+float Sensors::getDisplayCurrentA() {
+  return measuredCurrent < 0.0 ? 0.0 : measuredCurrent;
+}
+
+float Sensors::getDisplayPowerW() {
+  return measuredPower < 0.0 ? 0.0 : measuredPower;
+}
+
+float Sensors::getInstantCurrentA() {
+  return instantCurrent;
+}
+
+float Sensors::getInstantVoltageV() {
+  return instantVoltage;
+}
+
+float Sensors::getInstantPowerW() {
+  return instantPower;
 }
 
 float Sensors::getTemperatureC() {

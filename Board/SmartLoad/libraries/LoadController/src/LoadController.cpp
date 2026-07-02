@@ -164,16 +164,18 @@ void LoadController::begin() {
   writeFanPwm(0);
 }
 
-void LoadController::update(float currentA, float voltageV, float powerW, float temperatureC) {
+void LoadController::update(float currentA, float voltageV, float powerW, float temperatureC, float protectionCurrentA, float dtSec) {
   if (!isRunning()) {
     updateFan(temperatureC);
     return;
   }
 
-  if (!isValidFloat(currentA) || !isValidFloat(voltageV) || !isValidFloat(powerW) || !isValidFloat(temperatureC)) {
+  if (!isValidFloat(currentA) || !isValidFloat(voltageV) || !isValidFloat(powerW) || !isValidFloat(temperatureC) || !isValidFloat(protectionCurrentA)) {
     setAlarm("SENSOR_ERROR");
     return;
   }
+
+  dtSec = limitFloat(dtSec, CONTROL_DT_MIN_SEC, CONTROL_DT_MAX_SEC);
 
   unsigned long durationMs = (unsigned long)durationSec * 1000UL;
 
@@ -199,7 +201,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
   }
 
   if (workMode == CTRL_I_CONST) {
-    if (currentA > targetCurrentA * overCurrentFactor && currentA > 1.0) {
+    if (protectionCurrentA > targetCurrentA * overCurrentFactor && protectionCurrentA > 1.0) {
       overCurrentConfirmCounter++;
 
       if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
@@ -211,14 +213,13 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
       overCurrentConfirmCounter = 0;
     }
 
-    float dt = CONTROL_PERIOD_MS / 1000.0;
-    pwmCurrent += calculateIncrementalPi(targetCurrentA, currentA, currentKp, currentKi, currentLastError, dt);
+    pwmCurrent += calculateIncrementalPi(targetCurrentA, currentA, currentKp, currentKi, currentLastError, dtSec);
     pwmCurrent = limitFloat(pwmCurrent, (float)pwmMinLimit, (float)pwmMaxLimit);
     writeLoadPwm((int)pwmCurrent);
   }
 
   if (workMode == CTRL_P_CONST) {
-    if (currentA > currentLimitA) {
+    if (protectionCurrentA > currentLimitA) {
       overCurrentConfirmCounter++;
 
       if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
@@ -230,8 +231,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
       overCurrentConfirmCounter = 0;
     }
 
-    float dt = CONTROL_PERIOD_MS / 1000.0;
-    pwmCurrent += calculateIncrementalPi(targetPowerW, powerW, powerKp, powerKi, powerLastError, dt);
+    pwmCurrent += calculateIncrementalPi(targetPowerW, powerW, powerKp, powerKi, powerLastError, dtSec);
     pwmCurrent = limitFloat(pwmCurrent, (float)pwmMinLimit, (float)pwmMaxLimit);
     writeLoadPwm((int)pwmCurrent);
   }

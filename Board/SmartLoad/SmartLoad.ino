@@ -56,13 +56,28 @@ void loop() {
     smartSensors.update();
   }
 
+  unsigned long nowMs = millis();
+
   if (!smartLoadTimeBefore(lastControlMs + CONTROL_PERIOD_MS)) {
-    lastControlMs = millis();
+    unsigned long elapsedControlMs = nowMs - lastControlMs;
+    lastControlMs = nowMs;
+    float controlDtSec = elapsedControlMs / 1000.0;
+
+    if (controlDtSec < CONTROL_DT_MIN_SEC) {
+      controlDtSec = CONTROL_DT_MIN_SEC;
+    }
+
+    if (controlDtSec > CONTROL_DT_MAX_SEC) {
+      controlDtSec = CONTROL_DT_MAX_SEC;
+    }
+
     smartLoad.update(
       smartSensors.getCurrentA(),
       smartSensors.getVoltageV(),
       smartSensors.getPowerW(),
-      smartSensors.getTemperatureC()
+      smartSensors.getTemperatureC(),
+      smartSensors.getInstantCurrentA(),
+      controlDtSec
     );
   } else {
     smartLoad.updateFan(smartSensors.getTemperatureC());
