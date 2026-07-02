@@ -383,8 +383,6 @@ void HttpInterface::handleDebugReset() {
 
   loadController->resetRegulatorSettings();
   loadController->resetOutputSettings();
-  sensorSource->resetCurrentScale();
-  sensorSource->resetVoltageScale();
   sensorSource->resetSensorSettings();
   loadController->setMessage("Настройки PI-регулятора сброшены");
   sendDebugJson();

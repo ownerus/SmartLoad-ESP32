@@ -32,4 +32,3 @@
 !Board/SmartLoad/libraries/TelemetryClient/src/*.h
 !Board/SmartLoad/libraries/TelemetryClient/src/*.cpp
 !Board/SmartLoad/libraries/SmartLoadWeb/SmartLoadWeb.h
-!Board/SmartLoad/libraries/OneWire/**

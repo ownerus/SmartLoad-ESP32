@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import math
 import sqlite3
@@ -16,7 +15,7 @@ from urllib.parse import parse_qs, unquote_plus, urlparse
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "telemetry.sqlite3"
-OLD_CSV_PATH = DATA_DIR / "telemetry.csv"
+MAX_POST_BYTES = 64 * 1024
 
 TELEMETRY_FIELDS = [
     "received_at",
@@ -68,10 +67,6 @@ canvas{width:100%;height:240px;display:block}
 .chart-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px;margin-bottom:14px}
 .chart-controls-title{font-size:17px;font-weight:800}
 .chart-controls-subtitle{color:#9eacc0;font-size:13px;margin-top:3px}
-.control-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.refresh-button{background:#121820;color:#eef2f7;border:1px solid #354153;border-radius:6px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
-.refresh-button:hover{border-color:#596273;background:#1a212b}
-.refresh-button:disabled{opacity:.62;cursor:not-allowed}
 .period-select{position:relative}
 .period-button{display:flex;align-items:center;gap:10px;min-width:190px;background:#121820;color:#eef2f7;border:1px solid #354153;border-radius:6px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
 .period-button:hover{border-color:#596273;background:#1a212b}
@@ -82,7 +77,7 @@ canvas{width:100%;height:240px;display:block}
 .period-option:hover{background:#2e3847}
 .period-option.active{background:#596273;color:#fff}
 @media(max-width:980px){.cards{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:820px){.chart-controls{align-items:stretch;flex-direction:column}.control-row{align-items:stretch;flex-direction:column}.refresh-button,.period-button{width:100%}.period-menu{left:0;right:auto;width:100%}.grid{grid-template-columns:1fr}}
+@media(max-width:820px){.chart-controls{align-items:stretch;flex-direction:column}.period-button{width:100%}.period-menu{left:0;right:auto;width:100%}.grid{grid-template-columns:1fr}}
 @media(max-width:560px){.cards{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -107,18 +102,15 @@ canvas{width:100%;height:240px;display:block}
       <div class="chart-controls-title">Период графиков</div>
       <div class="chart-controls-subtitle">Выберите, какой участок телеметрии показать ниже</div>
     </div>
-    <div class="control-row">
-      <button class="refresh-button" id="refreshButton" type="button">Обновить</button>
-      <div class="period-select" id="periodSelect">
-        <button class="period-button" id="periodButton" type="button">
-          <span id="periodLabel">За 10 минут</span>
-          <span class="period-arrow"></span>
-        </button>
-        <div class="period-menu" id="periodMenu">
-          <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
-          <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
-          <button class="period-option" type="button" data-range="all">За всё время</button>
-        </div>
+    <div class="period-select" id="periodSelect">
+      <button class="period-button" id="periodButton" type="button">
+        <span id="periodLabel">За 10 минут</span>
+        <span class="period-arrow"></span>
+      </button>
+      <div class="period-menu" id="periodMenu">
+        <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
+        <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
+        <button class="period-option" type="button" data-range="all">За всё время</button>
       </div>
     </div>
   </div>
@@ -336,8 +328,6 @@ async function refresh(force){
   }
 
   refreshInFlight = true;
-  const refreshButton = document.getElementById('refreshButton');
-  if (refreshButton) refreshButton.disabled = true;
   try {
     const res = await fetch('/api/data?range=' + encodeURIComponent(selectedPeriod));
     const data = await res.json();
@@ -351,7 +341,6 @@ async function refresh(force){
     document.getElementById('status').textContent = 'ошибка соединения с сервером';
   } finally {
     refreshInFlight = false;
-    if (refreshButton) refreshButton.disabled = false;
     scheduleRefresh();
   }
 }
@@ -360,10 +349,6 @@ window.addEventListener('resize', () => refresh(true));
 document.getElementById('periodButton').addEventListener('click', event => {
   event.stopPropagation();
   togglePeriodMenu();
-});
-document.getElementById('refreshButton').addEventListener('click', () => {
-  nextRefreshAt = 0;
-  refresh(true);
 });
 document.querySelectorAll('.period-option').forEach(button => {
   button.addEventListener('click', event => {
@@ -413,7 +398,7 @@ def to_float_text(value: str) -> str:
 
 
 def parse_serial_line(line: str) -> dict[str, str]:
-    parts = next(csv.reader([line]))
+    parts = line.split(",", 9)
     while len(parts) < 10:
         parts.append("")
     return {
@@ -466,7 +451,6 @@ class TelemetryStore:
         self.lock = threading.Lock()
         self.total_rows = 0
         self._init_db()
-        self._migrate_old_csv()
         self.refresh_total_rows()
 
     def _connect(self) -> sqlite3.Connection:
@@ -502,22 +486,6 @@ class TelemetryStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_telemetry_event ON telemetry(event)"
             )
-
-    def _migrate_old_csv(self) -> None:
-        if not OLD_CSV_PATH.exists():
-            return
-
-        with self._connect() as conn:
-            existing_rows = conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0]
-
-        if existing_rows == 0:
-            with OLD_CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
-                reader = csv.DictReader(handle)
-                for old_row in reader:
-                    row = {field: old_row.get(field, "") for field in TELEMETRY_FIELDS}
-                    self._insert_row(row)
-
-        OLD_CSV_PATH.unlink()
 
     def refresh_total_rows(self) -> None:
         with self._connect() as conn:
@@ -705,6 +673,14 @@ class SmartLoadHandler(BaseHTTPRequestHandler):
             return
 
         length = self.safe_int(self.headers.get("Content-Length", "0"), 0)
+        if length < 0:
+            self.send_json({"ok": False, "error": "bad content length"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        if length > MAX_POST_BYTES:
+            self.send_json({"ok": False, "error": "payload too large"}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return
+
         raw = self.rfile.read(length).decode("utf-8", errors="replace")
         content_type = self.headers.get("Content-Type", "")
 

@@ -16,7 +16,6 @@ TelemetryClient::TelemetryClient() :
   load(nullptr),
   http(nullptr),
   snapshotMutex(nullptr),
-  taskHandle(nullptr),
   lastSensorUpdateCounter(0),
   averageSampleCount(0),
   currentSum(0.0),
@@ -73,7 +72,7 @@ bool TelemetryClient::begin(Sensors &sensorsRef, LoadController &loadRef, HttpIn
     TELEMETRY_TASK_STACK_WORDS,
     this,
     TELEMETRY_TASK_PRIORITY,
-    &taskHandle,
+    nullptr,
     TELEMETRY_TASK_CORE
   );
 

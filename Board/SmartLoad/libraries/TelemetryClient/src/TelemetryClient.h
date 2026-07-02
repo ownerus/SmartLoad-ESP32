@@ -38,7 +38,6 @@ private:
   HttpInterface *http;
   SemaphoreHandle_t snapshotMutex;
   Snapshot latestSnapshot;
-  TaskHandle_t taskHandle;
   unsigned long lastSensorUpdateCounter;
   unsigned long averageSampleCount;
   float currentSum;
