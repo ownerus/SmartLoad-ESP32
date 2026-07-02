@@ -6,17 +6,33 @@
 Board/
   SmartLoad/
     SmartLoad.ino      # основной Arduino-скетч ESP32
-    config.h           # пины, коэффициенты, защиты и настройки телеметрии
+    config.example.h   # пример локальной конфигурации
+    config.h           # локальная конфигурация, не хранится в git
+    web/               # исходные HTML-страницы ESP32
+    tools/             # вспомогательные скрипты сборки
     libraries/         # локальные библиотеки прошивки
       Sensors/         # измерение тока, напряжения и температуры
       LoadController/  # режимы I = const и P = const, PI-регуляторы и защиты
       HttpInterface/   # веб-интерфейс ESP32 и HTTP-команды
       TelemetryClient/ # отправка телеметрии на сервер отдельной задачей
-      SmartLoadWeb/    # HTML-страницы ESP32
-      OneWire/         # библиотека для DS18B20
+      SmartLoadWeb/    # сгенерированный заголовок веб-интерфейса ESP32
+      OneWire/         # локальная библиотека для DS18B20, не хранится в git
 
 Server/
   server.py            # HTTP-сервер для приема телеметрии и построения графиков
+  static/              # HTML, CSS и JS панели телеметрии
+```
+
+Перед сборкой после свежего клона создайте локальный конфиг:
+
+```powershell
+Copy-Item Board\SmartLoad\config.example.h Board\SmartLoad\config.h
+```
+
+После изменения файлов `Board\SmartLoad\web\*.html` пересоберите заголовок для Arduino IDE:
+
+```powershell
+python Board\SmartLoad\tools\build_web_header.py
 ```
 
 ## Подключение к ESP32

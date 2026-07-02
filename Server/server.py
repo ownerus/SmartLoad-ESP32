@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, unquote_plus, urlparse
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "telemetry.sqlite3"
+STATIC_DIR = BASE_DIR / "static"
+INDEX_PATH = STATIC_DIR / "index.html"
 MAX_POST_BYTES = 64 * 1024
 
 TELEMETRY_FIELDS = [
@@ -40,327 +42,12 @@ NUMERIC_FIELDS = {
 }
 
 MAX_CHART_POINTS = 8000
-
-
-INDEX_HTML = r"""<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SmartLoad Telemetry</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;background:#11161d;color:#eef2f7;font-family:Arial,sans-serif}
-.wrap{max-width:1180px;margin:0 auto;padding:16px}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-h1{font-size:28px;margin:0}
-.status{color:#98a6b8;font-size:14px}
-.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
-.card{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px}
-.label{color:#98a6b8;font-size:13px;margin-bottom:6px}
-.value{font-size:23px;font-weight:800;white-space:nowrap}
-.time-value{font-size:18px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.chart{background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px}
-.chart h2{font-size:17px;margin:0 0 8px}
-canvas{width:100%;height:240px;display:block}
-.chart-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#1a212b;border:1px solid #2d3746;border-radius:8px;padding:12px;margin-bottom:14px}
-.chart-controls-title{font-size:17px;font-weight:800}
-.chart-controls-subtitle{color:#9eacc0;font-size:13px;margin-top:3px}
-.period-select{position:relative}
-.period-button{display:flex;align-items:center;gap:10px;min-width:190px;background:#121820;color:#eef2f7;border:1px solid #354153;border-radius:6px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
-.period-button:hover{border-color:#596273;background:#1a212b}
-.period-arrow{margin-left:auto;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #d7e1ef}
-.period-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);width:210px;background:#1a212b;border:1px solid #354153;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);padding:6px;z-index:10}
-.period-select.open .period-menu{display:block}
-.period-option{width:100%;border:none;background:transparent;color:#dbe5f4;text-align:left;padding:10px 11px;border-radius:6px;font-size:14px;cursor:pointer}
-.period-option:hover{background:#2e3847}
-.period-option.active{background:#596273;color:#fff}
-@media(max-width:980px){.cards{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:820px){.chart-controls{align-items:stretch;flex-direction:column}.period-button{width:100%}.period-menu{left:0;right:auto;width:100%}.grid{grid-template-columns:1fr}}
-@media(max-width:560px){.cards{grid-template-columns:1fr 1fr}}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="top">
-    <h1>SmartLoad ESP32 Telemetry</h1>
-    <div class="status" id="status">ожидание данных...</div>
-  </div>
-
-  <div class="cards">
-    <div class="card"><div class="label">Ток</div><div class="value" id="current">-- A</div></div>
-    <div class="card"><div class="label">Напряжение</div><div class="value" id="voltage">-- V</div></div>
-    <div class="card"><div class="label">Мощность</div><div class="value" id="power">-- W</div></div>
-    <div class="card"><div class="label">Температура</div><div class="value" id="temp">-- C</div></div>
-    <div class="card"><div class="label">PWM / режим</div><div class="value" id="pwm">--</div></div>
-    <div class="card"><div class="label">Время</div><div class="value time-value" id="latestTime">--:--:--</div></div>
-  </div>
-
-  <div class="chart-controls">
-    <div>
-      <div class="chart-controls-title">Период графиков</div>
-      <div class="chart-controls-subtitle">Выберите, какой участок телеметрии показать ниже</div>
-    </div>
-    <div class="period-select" id="periodSelect">
-      <button class="period-button" id="periodButton" type="button">
-        <span id="periodLabel">За 10 минут</span>
-        <span class="period-arrow"></span>
-      </button>
-      <div class="period-menu" id="periodMenu">
-        <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
-        <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
-        <button class="period-option" type="button" data-range="all">За всё время</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="chart"><h2>Ток, А</h2><canvas id="chartCurrent"></canvas></div>
-    <div class="chart"><h2>Напряжение, В</h2><canvas id="chartVoltage"></canvas></div>
-    <div class="chart"><h2>Мощность, Вт</h2><canvas id="chartPower"></canvas></div>
-    <div class="chart"><h2>Температура, °C</h2><canvas id="chartTemp"></canvas></div>
-  </div>
-</div>
-
-<script>
-const charts = [
-  {id:'chartCurrent', field:'current_A', color:'#65ef98'},
-  {id:'chartVoltage', field:'voltage_V', color:'#7cc7ff'},
-  {id:'chartPower', field:'power_W', color:'#ffca6a'},
-  {id:'chartTemp', field:'temp_C', color:'#ff7c7c'}
-];
-
-const periods = {
-  '1m': 'За 1 минуту',
-  '10m': 'За 10 минут',
-  'all': 'За всё время'
-};
-
-let selectedPeriod = '10m';
-let refreshTimer = null;
-let refreshInFlight = false;
-let nextRefreshAt = 0;
-
-function num(v){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+STATIC_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
 }
 
-function format(v, digits, unit){
-  const n = num(v);
-  return n === null ? '-- ' + unit : n.toFixed(digits) + ' ' + unit;
-}
-
-function resizeCanvas(canvas){
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return {ctx, width: rect.width, height: rect.height};
-}
-
-function formatTimeLabel(value, withDate){
-  if (!value) return '';
-  const parts = String(value).split(' ');
-  const date = parts[0] || '';
-  const time = (parts[1] || parts[0] || '').slice(0, 8);
-  return withDate && date ? date.slice(5) + ' ' + time : time;
-}
-
-function drawChart(id, rows, field, color){
-  const canvas = document.getElementById(id);
-  const {ctx, width, height} = resizeCanvas(canvas);
-  ctx.clearRect(0, 0, width, height);
-
-  const padL = 48, padR = 12, padT = 10, padB = 48;
-  const values = rows.map(r => num(r[field])).filter(v => v !== null);
-  if (!values.length) {
-    ctx.fillStyle = '#7f8da0';
-    ctx.fillText('Нет данных', padL, 34);
-    return;
-  }
-
-  const dataMin = Math.min(...values);
-  const dataMax = Math.max(...values);
-  let plotMin = dataMin;
-  let plotMax = dataMax;
-  if (plotMin === plotMax) {
-    plotMin -= 1;
-    plotMax += 1;
-  }
-  const span = plotMax - plotMin;
-  plotMin -= span * 0.08;
-  plotMax += span * 0.08;
-
-  const plotW = width - padL - padR;
-  const plotH = height - padT - padB;
-  const y = v => padT + (plotMax - v) / (plotMax - plotMin) * plotH;
-  const x = i => padL + (rows.length <= 1 ? 0 : i / (rows.length - 1) * plotW);
-
-  ctx.strokeStyle = '#334257';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padL, padT);
-  ctx.lineTo(padL, padT + plotH);
-  ctx.lineTo(padL + plotW, padT + plotH);
-  ctx.stroke();
-
-  ctx.fillStyle = '#91a0b3';
-  ctx.font = '12px Arial';
-  ctx.textAlign = 'right';
-  ctx.fillText(dataMax.toFixed(2), padL - 7, padT + 10);
-  ctx.fillText(dataMin.toFixed(2), padL - 7, padT + plotH);
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  let started = false;
-  rows.forEach((row, i) => {
-    const v = num(row[field]);
-    if (v === null) return;
-    if (!started) {
-      ctx.moveTo(x(i), y(v));
-      started = true;
-    } else {
-      ctx.lineTo(x(i), y(v));
-    }
-  });
-  ctx.stroke();
-
-  const firstDate = (rows[0].received_at || '').split(' ')[0];
-  const lastDate = (rows[rows.length - 1].received_at || '').split(' ')[0];
-  const withDate = firstDate && lastDate && firstDate !== lastDate;
-  const timeMarks = [
-    {index: 0, align: 'left'},
-    {index: Math.floor((rows.length - 1) / 2), align: 'center'},
-    {index: rows.length - 1, align: 'right'}
-  ];
-
-  ctx.fillStyle = '#18202b';
-  ctx.fillRect(padL, padT + plotH + 1, plotW, padB - 2);
-  ctx.strokeStyle = '#334257';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padL, padT + plotH);
-  ctx.lineTo(padL + plotW, padT + plotH);
-  ctx.stroke();
-
-  ctx.font = '12px Arial';
-  ctx.fillStyle = '#c7d2e1';
-  ctx.textBaseline = 'alphabetic';
-  timeMarks.forEach(mark => {
-    const xPos = x(mark.index);
-    const label = formatTimeLabel(rows[mark.index].received_at, withDate);
-    ctx.strokeStyle = '#435168';
-    ctx.beginPath();
-    ctx.moveTo(xPos, padT + plotH);
-    ctx.lineTo(xPos, padT + plotH + 6);
-    ctx.stroke();
-    ctx.textAlign = mark.align;
-    ctx.fillText(label, xPos, height - 11);
-  });
-}
-
-function updateCards(row){
-  document.getElementById('current').textContent = format(row.current_A, 2, 'A');
-  document.getElementById('voltage').textContent = format(row.voltage_V, 2, 'V');
-  document.getElementById('power').textContent = format(row.power_W, 1, 'W');
-  document.getElementById('temp').textContent = format(row.temp_C, 1, 'C');
-  const pwm = row.pwm === '' || row.pwm === undefined ? '--' : row.pwm;
-  document.getElementById('pwm').textContent = pwm + ' / ' + (row.mode || '--');
-  document.getElementById('latestTime').textContent =
-    row.received_at ? row.received_at.split(' ').pop().slice(0, 8) : '--:--:--';
-}
-
-function togglePeriodMenu(){
-  document.getElementById('periodSelect').classList.toggle('open');
-}
-
-function setPeriod(period){
-  selectedPeriod = period;
-  document.getElementById('periodLabel').textContent = periods[period];
-  document.querySelectorAll('.period-option').forEach(button => {
-    button.classList.toggle('active', button.dataset.range === period);
-  });
-  document.getElementById('periodSelect').classList.remove('open');
-  nextRefreshAt = 0;
-  refresh(true);
-}
-
-document.addEventListener('click', event => {
-  const select = document.getElementById('periodSelect');
-  if (!select.contains(event.target)) select.classList.remove('open');
-});
-
-function isPeriodMenuOpen(){
-  return document.getElementById('periodSelect').classList.contains('open');
-}
-
-function scheduleRefresh(delay){
-  if (refreshTimer) clearTimeout(refreshTimer);
-  const periodMs = selectedPeriod === 'all' ? 5000 : 2000;
-  const now = performance.now();
-
-  if (delay !== undefined) {
-    nextRefreshAt = now + delay;
-  } else if (!nextRefreshAt || nextRefreshAt < now - periodMs) {
-    nextRefreshAt = now + periodMs;
-  } else {
-    nextRefreshAt += periodMs;
-  }
-
-  const nextDelay = Math.max(0, nextRefreshAt - now);
-  refreshTimer = setTimeout(() => refresh(false), nextDelay);
-}
-
-async function refresh(force){
-  if (!force && isPeriodMenuOpen()) {
-    scheduleRefresh(500);
-    return;
-  }
-
-  if (refreshInFlight) {
-    if (!force) scheduleRefresh();
-    return;
-  }
-
-  refreshInFlight = true;
-  try {
-    const res = await fetch('/api/data?range=' + encodeURIComponent(selectedPeriod));
-    const data = await res.json();
-    const rows = data.rows || [];
-    document.getElementById('status').textContent =
-      rows.length ? ('строк: ' + data.total_rows + ', последняя: ' + rows[rows.length - 1].received_at)
-                  : 'ожидание данных...';
-    if (rows.length) updateCards(rows[rows.length - 1]);
-    charts.forEach(c => drawChart(c.id, rows, c.field, c.color));
-  } catch (e) {
-    document.getElementById('status').textContent = 'ошибка соединения с сервером';
-  } finally {
-    refreshInFlight = false;
-    scheduleRefresh();
-  }
-}
-
-window.addEventListener('resize', () => refresh(true));
-document.getElementById('periodButton').addEventListener('click', event => {
-  event.stopPropagation();
-  togglePeriodMenu();
-});
-document.querySelectorAll('.period-option').forEach(button => {
-  button.addEventListener('click', event => {
-    event.stopPropagation();
-    setPeriod(button.dataset.range);
-  });
-});
-refresh(true);
-</script>
-</body>
-</html>
-"""
 
 
 def now_text() -> str:
@@ -632,7 +319,11 @@ class SmartLoadHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         if parsed.path == "/":
-            self.send_text(INDEX_HTML, "text/html; charset=utf-8")
+            self.send_file(INDEX_PATH)
+            return
+
+        if parsed.path.startswith("/static/"):
+            self.send_static(parsed.path)
             return
 
         if parsed.path in {"/telemetry", "/ingest", "/api/telemetry"}:
@@ -738,6 +429,29 @@ class SmartLoadHandler(BaseHTTPRequestHandler):
     def send_text(self, text: str, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = text.encode("utf-8")
         self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_static(self, path: str) -> None:
+        relative_path = path.removeprefix("/static/").strip("/")
+        file_path = (STATIC_DIR / relative_path).resolve()
+
+        if not file_path.is_relative_to(STATIC_DIR.resolve()):
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+
+        self.send_file(file_path)
+
+    def send_file(self, file_path: Path) -> None:
+        if not file_path.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+
+        content_type = STATIC_CONTENT_TYPES.get(file_path.suffix.lower(), "application/octet-stream")
+        body = file_path.read_bytes()
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

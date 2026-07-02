@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartLoad Telemetry</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>SmartLoad ESP32 Telemetry</h1>
+    <div class="status" id="status">ожидание данных...</div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Ток</div><div class="value" id="current">-- A</div></div>
+    <div class="card"><div class="label">Напряжение</div><div class="value" id="voltage">-- V</div></div>
+    <div class="card"><div class="label">Мощность</div><div class="value" id="power">-- W</div></div>
+    <div class="card"><div class="label">Температура</div><div class="value" id="temp">-- C</div></div>
+    <div class="card"><div class="label">PWM / режим</div><div class="value" id="pwm">--</div></div>
+    <div class="card"><div class="label">Время</div><div class="value time-value" id="latestTime">--:--:--</div></div>
+  </div>
+
+  <div class="chart-controls">
+    <div>
+      <div class="chart-controls-title">Период графиков</div>
+      <div class="chart-controls-subtitle">Выберите, какой участок телеметрии показать ниже</div>
+    </div>
+    <div class="period-select" id="periodSelect">
+      <button class="period-button" id="periodButton" type="button">
+        <span id="periodLabel">За 10 минут</span>
+        <span class="period-arrow"></span>
+      </button>
+      <div class="period-menu" id="periodMenu">
+        <button class="period-option" type="button" data-range="1m">За 1 минуту</button>
+        <button class="period-option active" type="button" data-range="10m">За 10 минут</button>
+        <button class="period-option" type="button" data-range="all">За всё время</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="chart"><h2>Ток, А</h2><canvas id="chartCurrent"></canvas></div>
+    <div class="chart"><h2>Напряжение, В</h2><canvas id="chartVoltage"></canvas></div>
+    <div class="chart"><h2>Мощность, Вт</h2><canvas id="chartPower"></canvas></div>
+    <div class="chart"><h2>Температура, °C</h2><canvas id="chartTemp"></canvas></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

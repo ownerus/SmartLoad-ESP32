@@ -15,10 +15,15 @@
 
 # SmartLoad project files.
 !Server/server.py
+!Server/static/*.html
+!Server/static/*.css
+!Server/static/*.js
 !Board/SmartLoad/SmartLoad.ino
 !Board/SmartLoad/platformio.ini
 !Board/SmartLoad/src/*.cpp
-!Board/SmartLoad/config.h
+!Board/SmartLoad/tools/*.py
+!Board/SmartLoad/web/*.html
+!Board/SmartLoad/config.example.h
 !Board/SmartLoad/libraries/Sensors/library.properties
 !Board/SmartLoad/libraries/Sensors/src/*.h
 !Board/SmartLoad/libraries/Sensors/src/*.cpp
