@@ -86,7 +86,7 @@ String HttpInterface::buildDataJson() {
   json += "\",";
 
   json += "\"current\":";
-  json += String(sensorSource->getDisplayCurrentA(), 3);
+  json += String(sensorSource->getCurrentA(), 3);
   json += ",";
 
   json += "\"voltage\":";
@@ -94,11 +94,15 @@ String HttpInterface::buildDataJson() {
   json += ",";
 
   json += "\"power\":";
-  json += String(sensorSource->getDisplayPowerW(), 1);
+  json += String(sensorSource->getPowerW(), 1);
   json += ",";
 
   json += "\"temp\":";
-  json += String(sensorSource->getTemperatureC(), 1);
+  json += sensorSource->isTemperatureValid() ? String(sensorSource->getTemperatureC(), 1) : "null";
+  json += ",";
+
+  json += "\"temperatureValid\":";
+  json += sensorSource->isTemperatureValid() ? "true" : "false";
   json += ",";
 
   json += "\"pwm\":";
@@ -181,6 +185,10 @@ String HttpInterface::buildDebugDataJson() {
   json += loadController->isVoltageProtectionEnabled() ? "true" : "false";
   json += ",";
 
+  json += "\"temperatureProtectionEnabled\":";
+  json += loadController->isTemperatureProtectionEnabled() ? "true" : "false";
+  json += ",";
+
   json += "\"pwmMin\":";
   json += String(loadController->getPwmMinLimit());
   json += ",";
@@ -221,10 +229,6 @@ String HttpInterface::buildDebugDataJson() {
   json += sensorSource != nullptr ? String(sensorSource->getMovingAverageSamples()) : "0";
   json += ",";
 
-  json += "\"filterK\":";
-  json += sensorSource != nullptr ? String(sensorSource->getFilterK(), 4) : "0";
-  json += ",";
-
   json += "\"currentZeroSamples\":";
   json += sensorSource != nullptr ? String(sensorSource->getCurrentZeroSamples()) : "0";
   json += ",";
@@ -237,28 +241,20 @@ String HttpInterface::buildDebugDataJson() {
   json += sensorSource != nullptr ? String(sensorSource->getCurrentA(), 3) : "0";
   json += ",";
 
-  json += "\"instantCurrent\":";
-  json += sensorSource != nullptr ? String(sensorSource->getInstantCurrentA(), 3) : "0";
-  json += ",";
-
   json += "\"debugVoltage\":";
   json += sensorSource != nullptr ? String(sensorSource->getVoltageV(), 2) : "0";
-  json += ",";
-
-  json += "\"instantVoltage\":";
-  json += sensorSource != nullptr ? String(sensorSource->getInstantVoltageV(), 2) : "0";
   json += ",";
 
   json += "\"debugPower\":";
   json += sensorSource != nullptr ? String(sensorSource->getPowerW(), 1) : "0";
   json += ",";
 
-  json += "\"instantPower\":";
-  json += sensorSource != nullptr ? String(sensorSource->getInstantPowerW(), 1) : "0";
+  json += "\"debugTemp\":";
+  json += sensorSource != nullptr && sensorSource->isTemperatureValid() ? String(sensorSource->getTemperatureC(), 1) : "null";
   json += ",";
 
-  json += "\"debugTemp\":";
-  json += sensorSource != nullptr ? String(sensorSource->getTemperatureC(), 1) : "0";
+  json += "\"temperatureValid\":";
+  json += sensorSource != nullptr && sensorSource->isTemperatureValid() ? "true" : "false";
   json += ",";
 
   json += "\"currentDiffRaw\":";
@@ -359,6 +355,7 @@ void HttpInterface::handleDebugSave() {
   int overCurrentConfirmCount = web->hasArg("overCurrentConfirmCount") ? web->arg("overCurrentConfirmCount").toInt() : loadController->getOverCurrentConfirmCount();
   bool loadOutputEnabled = web->hasArg("loadOutputEnabled") ? web->arg("loadOutputEnabled").toInt() == 1 : loadController->isLoadOutputEnabled();
   bool voltageProtectionEnabled = web->hasArg("voltageProtectionEnabled") ? web->arg("voltageProtectionEnabled").toInt() == 1 : loadController->isVoltageProtectionEnabled();
+  bool temperatureProtectionEnabled = web->hasArg("temperatureProtectionEnabled") ? web->arg("temperatureProtectionEnabled").toInt() == 1 : loadController->isTemperatureProtectionEnabled();
   int pwmMin = web->hasArg("pwmMin") ? web->arg("pwmMin").toInt() : loadController->getPwmMinLimit();
   int pwmMax = web->hasArg("pwmMax") ? web->arg("pwmMax").toInt() : loadController->getPwmMaxLimit();
   int pwmFreq = web->hasArg("pwmFreq") ? web->arg("pwmFreq").toInt() : loadController->getPwmFrequencyHz();
@@ -369,20 +366,18 @@ void HttpInterface::handleDebugSave() {
   float adcMaxValue = web->hasArg("adcMaxValue") ? web->arg("adcMaxValue").toFloat() : sensorSource->getAdcMaxValue();
   int analogAverageSamples = web->hasArg("analogAverageSamples") ? web->arg("analogAverageSamples").toInt() : sensorSource->getAnalogAverageSamples();
   int movingAverageSamples = web->hasArg("movingAverageSamples") ? web->arg("movingAverageSamples").toInt() : sensorSource->getMovingAverageSamples();
-  float filterK = web->hasArg("filterK") ? web->arg("filterK").toFloat() : sensorSource->getFilterK();
   int currentZeroSamples = web->hasArg("currentZeroSamples") ? web->arg("currentZeroSamples").toInt() : sensorSource->getCurrentZeroSamples();
   float currentZeroStabilityRaw = web->hasArg("currentZeroStabilityRaw") ? web->arg("currentZeroStabilityRaw").toFloat() : sensorSource->getCurrentZeroStabilityRaw();
 
   loadController->setRegulatorSettings(kpI, kiI, kpP, kiP, stepUp, stepDown);
   loadController->setFanOnTemperature(fanOnTemp);
   loadController->setDebugLimits(maxTestCurrent, overCurrentFactor, overCurrentConfirmCount);
-  loadController->setOutputSettings(loadOutputEnabled, voltageProtectionEnabled, pwmMin, pwmMax, pwmFreq, pwmResolution);
+  loadController->setOutputSettings(loadOutputEnabled, voltageProtectionEnabled, temperatureProtectionEnabled, pwmMin, pwmMax, pwmFreq, pwmResolution);
   sensorSource->setCurrentScale(currentK);
   sensorSource->setVoltageScale(voltageK);
   sensorSource->setAdcSettings(adcRefVoltage, adcMaxValue);
   sensorSource->setAnalogAverageSamples(analogAverageSamples);
   sensorSource->setMovingAverageSamples(movingAverageSamples);
-  sensorSource->setFilterK(filterK);
   sensorSource->setCurrentZeroSettings(currentZeroSamples, currentZeroStabilityRaw);
   loadController->setMessage("Настройки PI-регулятора применены");
   sendDebugJson();
@@ -451,6 +446,14 @@ void HttpInterface::handleStartI() {
     return;
   }
 
+  sensorSource->update();
+
+  if (loadController->isTemperatureProtectionEnabled() && !sensorSource->isTemperatureValid()) {
+    loadController->setMessage("Старт запрещён: датчик температуры не готов");
+    sendJson();
+    return;
+  }
+
   loadController->setMessage("Калибровка нуля тока...");
 
   if (!sensorSource->calibrateCurrentZero()) {
@@ -460,7 +463,6 @@ void HttpInterface::handleStartI() {
     return;
   }
 
-  sensorSource->update();
   loadController->startIConst(currentSet, voltageMin, timeSec, temperatureMax);
   sendJson();
 }
@@ -512,6 +514,14 @@ void HttpInterface::handleStartP() {
     return;
   }
 
+  sensorSource->update();
+
+  if (loadController->isTemperatureProtectionEnabled() && !sensorSource->isTemperatureValid()) {
+    loadController->setMessage("Старт запрещён: датчик температуры не готов");
+    sendJson();
+    return;
+  }
+
   loadController->setMessage("Калибровка нуля тока...");
 
   if (!sensorSource->calibrateCurrentZero()) {
@@ -521,7 +531,6 @@ void HttpInterface::handleStartP() {
     return;
   }
 
-  sensorSource->update();
   loadController->startPConst(powerSet, currentMax, voltageMin, timeSec, temperatureMax);
   sendJson();
 }

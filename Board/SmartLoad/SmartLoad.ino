@@ -76,11 +76,13 @@ void loop() {
       smartSensors.getVoltageV(),
       smartSensors.getPowerW(),
       smartSensors.getTemperatureC(),
-      smartSensors.getInstantCurrentA(),
+      smartSensors.isTemperatureValid(),
       controlDtSec
     );
   } else {
-    smartLoad.updateFan(smartSensors.getTemperatureC());
+    if (smartSensors.isTemperatureValid()) {
+      smartLoad.updateFan(smartSensors.getTemperatureC());
+    }
   }
 
   smartTelemetry.publish();

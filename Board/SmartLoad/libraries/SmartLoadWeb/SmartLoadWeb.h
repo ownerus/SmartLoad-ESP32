@@ -253,7 +253,7 @@ function updatePage(data){
   setText('current', Number(data.current).toFixed(2) + ' А');
   setText('voltage', Number(data.voltage).toFixed(2) + ' В');
   setText('power', Number(data.power).toFixed(1) + ' Вт');
-  setText('temp', Number(data.temp).toFixed(1) + ' °C');
+  setText('temp', data.temperatureValid ? Number(data.temp).toFixed(1) + ' °C' : '--');
 
   let badge = document.getElementById('statusBadge');
   badge.innerText = data.modeText;
@@ -483,6 +483,18 @@ body{background:#11161d;color:#eef2f7;font-family:Arial,sans-serif;padding:14px}
 label{display:block;font-size:16px;font-weight:800;margin-bottom:6px;color:#fff}
 .hint{min-height:38px;color:#9eacc0;font-size:14px;line-height:1.35;margin-bottom:10px}
 input{width:100%;padding:13px;border-radius:6px;border:1px solid #354153;background:#0f151d;color:#fff;font-size:18px}
+.switch-grid{display:grid;grid-template-columns:1fr;gap:10px}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#121820;border:1px solid #2b3443;border-radius:6px;padding:13px 14px}
+.switch-copy{min-width:0}
+.switch-title{font-size:16px;font-weight:800;color:#fff;margin-bottom:4px}
+.switch-hint{color:#9eacc0;font-size:13px;line-height:1.3}
+.switch{position:relative;display:inline-flex;align-items:center;width:58px;height:32px;flex:0 0 auto}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch-slider{position:absolute;inset:0;border-radius:999px;background:#596273;border:1px solid #687385;box-shadow:inset 0 1px 2px rgba(0,0,0,.28);transition:background .16s ease,border-color .16s ease}
+.switch-slider:before{content:"";position:absolute;width:28px;height:28px;left:1px;top:1px;border-radius:50%;background:#f7f9fc;box-shadow:0 2px 8px rgba(0,0,0,.32);transition:transform .16s ease}
+.switch input:checked + .switch-slider{background:#35c46b;border-color:#45d57b}
+.switch input:checked + .switch-slider:before{transform:translateX(26px)}
+.switch input:focus-visible + .switch-slider{outline:2px solid #9db5d4;outline-offset:3px}
 .diag-table{width:100%;border-collapse:collapse;background:#121820;border:1px solid #2b3443;border-radius:6px;overflow:hidden}
 .diag-table th,.diag-table td{padding:10px 12px;border-bottom:1px solid #2b3443;text-align:left}
 .diag-table tr:last-child th,.diag-table tr:last-child td{border-bottom:none}
@@ -564,19 +576,44 @@ button:active{transform:scale(.99)}
   </div>
 
   <div class="card">
-    <div class="section-title">PWM / MOSFET / защиты</div>
-    <div class="field-grid">
-      <div class="field">
-        <label for="loadOutputEnabled">Выход нагрузки</label>
-        <div class="hint">1 = реальный PWM подаётся на MOSFET, 0 = выход принудительно держится в нуле.</div>
-        <input id="loadOutputEnabled" type="number" step="1" min="0" max="1">
+    <div class="section-title">Переключатели</div>
+    <div class="switch-grid">
+      <div class="switch-row">
+        <div class="switch-copy">
+          <div class="switch-title">Выход нагрузки</div>
+          <div class="switch-hint">Реальный PWM на MOSFET. В выключенном состоянии выход держится в нуле.</div>
+        </div>
+        <label class="switch" aria-label="Выход нагрузки">
+          <input id="loadOutputEnabled" type="checkbox">
+          <span class="switch-slider"></span>
+        </label>
       </div>
-      <div class="field">
-        <label for="voltageProtectionEnabled">Защита по Vmin</label>
-        <div class="hint">1 = остановка при просадке ниже Vmin, 0 = защита по входному напряжению отключена.</div>
-        <input id="voltageProtectionEnabled" type="number" step="1" min="0" max="1">
+      <div class="switch-row">
+        <div class="switch-copy">
+          <div class="switch-title">Защита по Vmin</div>
+          <div class="switch-hint">Остановка теста при просадке входного напряжения ниже заданного Vmin.</div>
+        </div>
+        <label class="switch" aria-label="Защита по Vmin">
+          <input id="voltageProtectionEnabled" type="checkbox">
+          <span class="switch-slider"></span>
+        </label>
       </div>
-      <div class="field">
+      <div class="switch-row">
+        <div class="switch-copy">
+          <div class="switch-title">Защита по температуре</div>
+          <div class="switch-hint">Требует исправный DS18B20 и останавливает тест при перегреве. Можно выключить для работы без датчика.</div>
+        </div>
+        <label class="switch" aria-label="Защита по температуре">
+          <input id="temperatureProtectionEnabled" type="checkbox">
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">PWM / MOSFET</div>
+    <div class="field-grid">      <div class="field">
         <label for="pwmMin">Минимальный PWM нагрузки</label>
         <div class="hint">Минимальное ненулевое значение PWM. Команда остановки всё равно записывает 0.</div>
         <input id="pwmMin" type="number" step="1" min="0" max="65535">
@@ -659,11 +696,6 @@ button:active{transform:scale(.99)}
         <input id="movingAverageSamples" type="number" step="1" min="1" max="512">
       </div>
       <div class="field">
-        <label for="filterK">Коэффициент фильтра измерений</label>
-        <div class="hint">Чем больше значение, тем быстрее реакция и тем больше видимый шум.</div>
-        <input id="filterK" type="number" step="0.01" min="0.01" max="1">
-      </div>
-      <div class="field">
         <label for="currentZeroSamples">Измерения автонуля тока</label>
         <div class="hint">Сколько измерений используется для автокалибровки нуля перед стартом режима.</div>
         <input id="currentZeroSamples" type="number" step="1" min="1" max="500">
@@ -681,11 +713,8 @@ button:active{transform:scale(.99)}
     <table class="diag-table">
       <tbody>
         <tr><th>Ток</th><td id="dbgCurrent">--</td></tr>
-        <tr><th>Быстрый ток</th><td id="dbgInstantCurrent">--</td></tr>
         <tr><th>Напряжение</th><td id="dbgVoltage">--</td></tr>
-        <tr><th>Быстрое напряжение</th><td id="dbgInstantVoltage">--</td></tr>
         <tr><th>Мощность</th><td id="dbgPower">--</td></tr>
-        <tr><th>Быстрая мощность</th><td id="dbgInstantPower">--</td></tr>
         <tr><th>Температура</th><td id="dbgTemp">--</td></tr>
         <tr><th>PWM</th><td id="dbgPwm">--</td></tr>
         <tr><th>Режим</th><td id="dbgMode">--</td></tr>
@@ -726,8 +755,9 @@ function setValues(data){
   document.getElementById('maxTestCurrent').value = Number(data.maxTestCurrent).toFixed(1);
   document.getElementById('overCurrentFactor').value = Number(data.overCurrentFactor).toFixed(2);
   document.getElementById('overCurrentConfirmCount').value = Number(data.overCurrentConfirmCount);
-  document.getElementById('loadOutputEnabled').value = data.loadOutputEnabled ? 1 : 0;
-  document.getElementById('voltageProtectionEnabled').value = data.voltageProtectionEnabled ? 1 : 0;
+  document.getElementById('loadOutputEnabled').checked = Boolean(data.loadOutputEnabled);
+  document.getElementById('voltageProtectionEnabled').checked = Boolean(data.voltageProtectionEnabled);
+  document.getElementById('temperatureProtectionEnabled').checked = Boolean(data.temperatureProtectionEnabled);
   document.getElementById('pwmMin').value = Number(data.pwmMin);
   document.getElementById('pwmMax').value = Number(data.pwmMax);
   document.getElementById('pwmFreq').value = Number(data.pwmFreq);
@@ -739,7 +769,6 @@ function setValues(data){
   document.getElementById('adcMaxValue').value = Number(data.adcMaxValue).toFixed(0);
   document.getElementById('analogAverageSamples').value = Number(data.analogAverageSamples);
   document.getElementById('movingAverageSamples').value = Number(data.movingAverageSamples);
-  document.getElementById('filterK').value = Number(data.filterK).toFixed(2);
   document.getElementById('currentZeroSamples').value = Number(data.currentZeroSamples);
   document.getElementById('currentZeroStabilityRaw').value = Number(data.currentZeroStabilityRaw).toFixed(1);
   updateDiagnostics(data);
@@ -774,12 +803,9 @@ function setDiag(id, value){
 
 function updateDiagnostics(data){
   setDiag('dbgCurrent', Number(data.debugCurrent).toFixed(3) + ' А');
-  setDiag('dbgInstantCurrent', Number(data.instantCurrent).toFixed(3) + ' А');
   setDiag('dbgVoltage', Number(data.debugVoltage).toFixed(2) + ' В');
-  setDiag('dbgInstantVoltage', Number(data.instantVoltage).toFixed(2) + ' В');
   setDiag('dbgPower', Number(data.debugPower).toFixed(1) + ' Вт');
-  setDiag('dbgInstantPower', Number(data.instantPower).toFixed(1) + ' Вт');
-  setDiag('dbgTemp', Number(data.debugTemp).toFixed(1) + ' °C');
+  setDiag('dbgTemp', data.temperatureValid ? Number(data.debugTemp).toFixed(1) + ' °C' : '--');
   setDiag('dbgPwm', String(data.debugPwm));
   setDiag('dbgMode', String(data.debugMode));
   setDiag('dbgCurrentDiff', Number(data.currentDiffRaw).toFixed(1));
@@ -806,7 +832,11 @@ function refreshDiagnostics(){
 }
 
 function valueParam(id){
-  return encodeURIComponent(document.getElementById(id).value);
+  const input = document.getElementById(id);
+  if (input.type === 'checkbox') {
+    return input.checked ? '1' : '0';
+  }
+  return encodeURIComponent(input.value);
 }
 
 function clampDebugInput(id, minValue, maxValue, fallbackValue, integerOnly = false){
@@ -833,8 +863,6 @@ function normalizeDebugInputs(){
   clampDebugInput('maxTestCurrent', 0.1, 1000.0, 5.0);
   clampDebugInput('overCurrentFactor', 1.0, 10.0, 1.25);
   clampDebugInput('overCurrentConfirmCount', 1, 100, 3, true);
-  clampDebugInput('loadOutputEnabled', 0, 1, 0, true);
-  clampDebugInput('voltageProtectionEnabled', 0, 1, 1, true);
   clampDebugInput('pwmResolution', 1, 16, 8, true);
   setPwmInputLimits(document.getElementById('pwmResolution').value);
   const pwmMax = pwmMaxForResolution(document.getElementById('pwmResolution').value);
@@ -847,7 +875,6 @@ function normalizeDebugInputs(){
   clampDebugInput('adcMaxValue', 1, 65535, 4095, true);
   clampDebugInput('analogAverageSamples', 1, 512, 10, true);
   clampDebugInput('movingAverageSamples', 1, 512, 10, true);
-  clampDebugInput('filterK', 0.01, 1.0, 0.2);
   clampDebugInput('currentZeroSamples', 1, 500, 50, true);
   clampDebugInput('currentZeroStabilityRaw', 1.0, 4095.0, 40.0);
 }
@@ -867,6 +894,7 @@ function saveDebug(){
             '&overCurrentConfirmCount=' + valueParam('overCurrentConfirmCount') +
             '&loadOutputEnabled=' + valueParam('loadOutputEnabled') +
             '&voltageProtectionEnabled=' + valueParam('voltageProtectionEnabled') +
+            '&temperatureProtectionEnabled=' + valueParam('temperatureProtectionEnabled') +
             '&pwmMin=' + valueParam('pwmMin') +
             '&pwmMax=' + valueParam('pwmMax') +
             '&pwmFreq=' + valueParam('pwmFreq') +
@@ -877,7 +905,6 @@ function saveDebug(){
             '&adcMaxValue=' + valueParam('adcMaxValue') +
             '&analogAverageSamples=' + valueParam('analogAverageSamples') +
             '&movingAverageSamples=' + valueParam('movingAverageSamples') +
-            '&filterK=' + valueParam('filterK') +
             '&currentZeroSamples=' + valueParam('currentZeroSamples') +
             '&currentZeroStabilityRaw=' + valueParam('currentZeroStabilityRaw');
 

@@ -13,7 +13,6 @@ Sensors::Sensors() :
   samplePairsPerUpdate(ADC_SAMPLE_PAIRS_PER_UPDATE),
   movingAverageSamples(ADC_MOVING_AVERAGE_SAMPLES),
   zeroDiffRaw(0.0),
-  filterK(FILTER_K),
   currentZeroSamples(CURRENT_ZERO_SAMPLES),
   currentZeroStabilityRaw(CURRENT_ZERO_STABILITY_RAW),
   currentRawPSum(0.0),
@@ -26,25 +25,20 @@ Sensors::Sensors() :
   currentAverageCount(0),
   voltageAverageIndex(0),
   voltageAverageCount(0),
-  instantCurrent(0.0),
-  instantVoltage(0.0),
-  instantPower(0.0),
+  currentA(0.0),
+  voltageV(0.0),
+  powerW(0.0),
   currentRawP(0.0),
   currentRawN(0.0),
   voltageRawP(0.0),
   voltageRawN(0.0),
   currentDiffRaw(0.0),
   voltageDiffRaw(0.0),
-  filteredCurrent(0.0),
-  filteredVoltage(0.0),
-  filteredPower(0.0),
-  measuredCurrent(0.0),
-  measuredVoltage(0.0),
-  measuredPower(0.0),
   measuredTemp(-125.0),
-  filterIsReady(false),
+  temperatureValid(false),
   tempRequestIsStarted(false),
   tempRequestStartMs(0),
+  tempLastValidMs(0),
   updateCounter(0) {
 }
 
@@ -126,22 +120,27 @@ void Sensors::sampleVoltagePairs(int sampleCount) {
 }
 
 void Sensors::updateTemperature() {
+  unsigned long nowMs = millis();
+
   if (!tempRequestIsStarted) {
     if (oneWire.reset()) {
       oneWire.write(0xCC);
       oneWire.write(0x44);
       tempRequestIsStarted = true;
-      tempRequestStartMs = millis();
+      tempRequestStartMs = nowMs;
+    } else if (tempLastValidMs == 0 || !smartLoadTimeBefore(tempLastValidMs + TEMP_VALID_TIMEOUT_MS)) {
+      temperatureValid = false;
     }
 
     return;
   }
 
-  if (smartLoadTimeBefore(tempRequestStartMs + 800UL)) {
+  if (smartLoadTimeBefore(tempRequestStartMs + TEMP_CONVERSION_MS)) {
     return;
   }
 
   byte dataTemp[9];
+  bool readIsValid = false;
 
   if (oneWire.reset()) {
     oneWire.write(0xCC);
@@ -152,13 +151,20 @@ void Sensors::updateTemperature() {
     }
 
     if (OneWire::crc8(dataTemp, 8) == dataTemp[8]) {
-      int16_t rawTemp = (dataTemp[1] << 8) | dataTemp[0];
+      int16_t rawTemp = (int16_t)(((uint16_t)dataTemp[1] << 8) | dataTemp[0]);
       float temp = rawTemp * 0.0625;
 
-      if (temp > -55.0 && temp < 125.0) {
+      if (temp >= -55.0 && temp <= 125.0) {
         measuredTemp = temp;
+        temperatureValid = true;
+        tempLastValidMs = nowMs;
+        readIsValid = true;
       }
     }
+  }
+
+  if (!readIsValid && (tempLastValidMs == 0 || !smartLoadTimeBefore(tempLastValidMs + TEMP_VALID_TIMEOUT_MS))) {
+    temperatureValid = false;
   }
 
   tempRequestIsStarted = false;
@@ -202,99 +208,61 @@ bool Sensors::calibrateCurrentZero() {
   }
 
   zeroDiffRaw = sum / currentZeroSamples;
-  resetFilter();
+  resetMeasurements();
 
   return true;
 }
 
 void Sensors::update() {
   sampleCurrentPairs(samplePairsPerUpdate);
-  instantCurrent = (currentDiffRaw - zeroDiffRaw) * currentScale;
+  currentA = (currentDiffRaw - zeroDiffRaw) * currentScale;
 
   sampleVoltagePairs(samplePairsPerUpdate);
   float adcVoltage = voltageDiffRaw * adcRefVoltage / adcMaxValue;
 
-  instantVoltage = adcVoltage * voltageScale;
+  voltageV = adcVoltage * voltageScale;
 
-  if (instantVoltage < 0.0) {
-    instantVoltage = 0.0;
+  if (voltageV < 0.0) {
+    voltageV = 0.0;
   }
 
-  instantPower = instantVoltage * instantCurrent;
-
-  if (!filterIsReady) {
-    filteredCurrent = instantCurrent;
-    filteredVoltage = instantVoltage;
-    filteredPower = instantPower;
-    filterIsReady = true;
-  } else {
-    filteredCurrent = filteredCurrent + filterK * (instantCurrent - filteredCurrent);
-    filteredVoltage = filteredVoltage + filterK * (instantVoltage - filteredVoltage);
-    filteredPower = filteredPower + filterK * (instantPower - filteredPower);
-  }
-
-  measuredCurrent = filteredCurrent;
-  measuredVoltage = filteredVoltage;
-  measuredPower = filteredPower;
+  powerW = voltageV * currentA;
 
   updateTemperature();
   updateCounter++;
 }
 
-void Sensors::resetFilter() {
-  instantCurrent = 0.0;
-  instantVoltage = 0.0;
-  instantPower = 0.0;
+void Sensors::resetMeasurements() {
+  currentA = 0.0;
+  voltageV = 0.0;
+  powerW = 0.0;
   currentRawP = 0.0;
   currentRawN = 0.0;
   voltageRawP = 0.0;
   voltageRawN = 0.0;
   currentDiffRaw = 0.0;
   voltageDiffRaw = 0.0;
-  filteredCurrent = 0.0;
-  filteredVoltage = 0.0;
-  filteredPower = 0.0;
-  measuredCurrent = 0.0;
-  measuredVoltage = 0.0;
-  measuredPower = 0.0;
-  filterIsReady = false;
   resetMovingAverages();
 }
 
 float Sensors::getCurrentA() {
-  return measuredCurrent;
+  return currentA;
 }
 
 float Sensors::getVoltageV() {
-  return measuredVoltage;
+  return voltageV;
 }
 
 float Sensors::getPowerW() {
-  return measuredPower;
-}
-
-float Sensors::getDisplayCurrentA() {
-  return measuredCurrent < 0.0 ? 0.0 : measuredCurrent;
-}
-
-float Sensors::getDisplayPowerW() {
-  return measuredPower < 0.0 ? 0.0 : measuredPower;
-}
-
-float Sensors::getInstantCurrentA() {
-  return instantCurrent;
-}
-
-float Sensors::getInstantVoltageV() {
-  return instantVoltage;
-}
-
-float Sensors::getInstantPowerW() {
-  return instantPower;
+  return powerW;
 }
 
 float Sensors::getTemperatureC() {
   return measuredTemp;
+}
+
+bool Sensors::isTemperatureValid() {
+  return temperatureValid;
 }
 
 float Sensors::getCurrentZeroRaw() {
@@ -349,10 +317,6 @@ int Sensors::getMovingAverageSamples() {
   return movingAverageSamples;
 }
 
-float Sensors::getFilterK() {
-  return filterK;
-}
-
 int Sensors::getCurrentZeroSamples() {
   return currentZeroSamples;
 }
@@ -371,7 +335,7 @@ void Sensors::setCurrentScale(float value) {
   }
 
   currentScale = value;
-  resetFilter();
+  resetMeasurements();
 }
 
 void Sensors::setVoltageScale(float value) {
@@ -380,7 +344,7 @@ void Sensors::setVoltageScale(float value) {
   }
 
   voltageScale = value;
-  resetFilter();
+  resetMeasurements();
 }
 
 void Sensors::setAdcSettings(float refVoltage, float maxValue) {
@@ -394,7 +358,7 @@ void Sensors::setAdcSettings(float refVoltage, float maxValue) {
 
   adcRefVoltage = refVoltage;
   adcMaxValue = maxValue;
-  resetFilter();
+  resetMeasurements();
 }
 
 void Sensors::setAnalogAverageSamples(int value) {
@@ -407,7 +371,7 @@ void Sensors::setAnalogAverageSamples(int value) {
   }
 
   samplePairsPerUpdate = value;
-  resetFilter();
+  resetMeasurements();
 }
 
 void Sensors::setMovingAverageSamples(int value) {
@@ -420,16 +384,7 @@ void Sensors::setMovingAverageSamples(int value) {
   }
 
   movingAverageSamples = value;
-  resetFilter();
-}
-
-void Sensors::setFilterK(float value) {
-  if (isnan(value) || isinf(value) || value <= 0.0 || value > 1.0) {
-    return;
-  }
-
-  filterK = value;
-  resetFilter();
+  resetMeasurements();
 }
 
 void Sensors::setCurrentZeroSettings(int samples, float stabilityRaw) {
@@ -464,8 +419,7 @@ void Sensors::resetSensorSettings() {
   adcMaxValue = ADC_MAX_VALUE;
   samplePairsPerUpdate = ADC_SAMPLE_PAIRS_PER_UPDATE;
   movingAverageSamples = ADC_MOVING_AVERAGE_SAMPLES;
-  filterK = FILTER_K;
   currentZeroSamples = CURRENT_ZERO_SAMPLES;
   currentZeroStabilityRaw = CURRENT_ZERO_STABILITY_RAW;
-  resetFilter();
+  resetMeasurements();
 }

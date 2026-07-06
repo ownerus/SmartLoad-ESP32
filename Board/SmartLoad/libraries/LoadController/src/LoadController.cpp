@@ -33,6 +33,7 @@ LoadController::LoadController() :
   pwmResolutionBits(PWM_RESOLUTION_BITS),
   loadOutputEnabled(ENABLE_LOAD_OUTPUT != 0),
   voltageProtectionEnabled(ENABLE_VOLTAGE_PROTECTION != 0),
+  temperatureProtectionEnabled(ENABLE_TEMPERATURE_PROTECTION != 0),
   currentLastError(0.0),
   powerLastError(0.0),
   durationSec(300),
@@ -164,13 +165,20 @@ void LoadController::begin() {
   writeFanPwm(0);
 }
 
-void LoadController::update(float currentA, float voltageV, float powerW, float temperatureC, float protectionCurrentA, float dtSec) {
+void LoadController::update(float currentA, float voltageV, float powerW, float temperatureC, bool temperatureValid, float dtSec) {
   if (!isRunning()) {
-    updateFan(temperatureC);
+    if (temperatureValid) {
+      updateFan(temperatureC);
+    }
     return;
   }
 
-  if (!isValidFloat(currentA) || !isValidFloat(voltageV) || !isValidFloat(powerW) || !isValidFloat(temperatureC) || !isValidFloat(protectionCurrentA)) {
+  if (temperatureProtectionEnabled && !temperatureValid) {
+    setAlarm("TEMP_SENSOR_ERROR");
+    return;
+  }
+
+  if (!isValidFloat(currentA) || !isValidFloat(voltageV) || !isValidFloat(powerW) || (temperatureProtectionEnabled && !isValidFloat(temperatureC))) {
     setAlarm("SENSOR_ERROR");
     return;
   }
@@ -194,14 +202,14 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
     return;
   }
 
-  if (temperatureC > temperatureLimitC) {
+  if (temperatureProtectionEnabled && temperatureC > temperatureLimitC) {
     setAlarm("OVER_TEMPERATURE");
     updateFan(temperatureC);
     return;
   }
 
   if (workMode == CTRL_I_CONST) {
-    if (protectionCurrentA > targetCurrentA * overCurrentFactor && protectionCurrentA > 1.0) {
+    if (currentA > targetCurrentA * overCurrentFactor && currentA > 1.0) {
       overCurrentConfirmCounter++;
 
       if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
@@ -219,7 +227,7 @@ void LoadController::update(float currentA, float voltageV, float powerW, float 
   }
 
   if (workMode == CTRL_P_CONST) {
-    if (protectionCurrentA > currentLimitA) {
+    if (currentA > currentLimitA) {
       overCurrentConfirmCounter++;
 
       if (overCurrentConfirmCounter >= overCurrentConfirmLimit) {
@@ -347,7 +355,7 @@ void LoadController::setDebugLimits(float maxCurrent, float overCurrentFactorVal
   overCurrentConfirmLimit = overCurrentConfirmCount;
 }
 
-void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution) {
+void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtection, bool temperatureProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution) {
   if (pwmFreq < 1) {
     pwmFreq = 1;
   }
@@ -388,6 +396,7 @@ void LoadController::setOutputSettings(bool outputEnabled, bool voltageProtectio
 
   loadOutputEnabled = outputEnabled;
   voltageProtectionEnabled = voltageProtection;
+  temperatureProtectionEnabled = temperatureProtection;
   pwmMinLimit = pwmMin;
   pwmMaxLimit = pwmMax;
 
@@ -411,6 +420,7 @@ void LoadController::resetOutputSettings() {
   setOutputSettings(
     ENABLE_LOAD_OUTPUT != 0,
     ENABLE_VOLTAGE_PROTECTION != 0,
+    ENABLE_TEMPERATURE_PROTECTION != 0,
     PWM_MIN,
     PWM_MAX,
     PWM_FREQ_HZ,
@@ -423,6 +433,10 @@ bool LoadController::canStart() {
 }
 
 void LoadController::updateFan(float temperatureC) {
+  if (!isValidFloat(temperatureC)) {
+    return;
+  }
+
   if (isRunning()) {
     fanIsActive = true;
   }
@@ -556,4 +570,8 @@ bool LoadController::isLoadOutputEnabled() {
 
 bool LoadController::isVoltageProtectionEnabled() {
   return voltageProtectionEnabled;
+}
+
+bool LoadController::isTemperatureProtectionEnabled() {
+  return temperatureProtectionEnabled;
 }

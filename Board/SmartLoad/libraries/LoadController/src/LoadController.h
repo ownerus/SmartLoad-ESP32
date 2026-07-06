@@ -39,6 +39,7 @@ private:
   int pwmResolutionBits;
   bool loadOutputEnabled;
   bool voltageProtectionEnabled;
+  bool temperatureProtectionEnabled;
 
   float currentLastError;
   float powerLastError;
@@ -67,7 +68,7 @@ public:
   LoadController();
 
   void begin();
-  void update(float currentA, float voltageV, float powerW, float temperatureC, float protectionCurrentA, float dtSec);
+  void update(float currentA, float voltageV, float powerW, float temperatureC, bool temperatureValid, float dtSec);
   bool startIConst(float currentSet, float voltageMin, int timeSec, float temperatureMax);
   bool startPConst(float powerSet, float currentMax, float voltageMin, int timeSec, float temperatureMax);
   void stop();
@@ -77,7 +78,7 @@ public:
   void setRegulatorSettings(float kpI, float kiI, float kpP, float kiP, float stepUp, float stepDown);
   void setFanOnTemperature(float value);
   void setDebugLimits(float maxCurrent, float overCurrentFactorValue, int overCurrentConfirmCount);
-  void setOutputSettings(bool outputEnabled, bool voltageProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution);
+  void setOutputSettings(bool outputEnabled, bool voltageProtection, bool temperatureProtection, int pwmMin, int pwmMax, int pwmFreq, int pwmResolution);
   void resetRegulatorSettings();
   void resetOutputSettings();
   bool canStart();
@@ -105,4 +106,5 @@ public:
   int getPwmResolutionBits();
   bool isLoadOutputEnabled();
   bool isVoltageProtectionEnabled();
+  bool isTemperatureProtectionEnabled();
 };

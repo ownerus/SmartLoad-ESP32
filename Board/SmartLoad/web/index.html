@@ -247,7 +247,7 @@ function updatePage(data){
   setText('current', Number(data.current).toFixed(2) + ' А');
   setText('voltage', Number(data.voltage).toFixed(2) + ' В');
   setText('power', Number(data.power).toFixed(1) + ' Вт');
-  setText('temp', Number(data.temp).toFixed(1) + ' °C');
+  setText('temp', data.temperatureValid ? Number(data.temp).toFixed(1) + ' °C' : '--');
 
   let badge = document.getElementById('statusBadge');
   badge.innerText = data.modeText;

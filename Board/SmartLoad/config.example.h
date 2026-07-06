@@ -47,6 +47,9 @@
 // Защита от просадки входного напряжения.
 #define ENABLE_VOLTAGE_PROTECTION 1
 
+// Защита по температуре и обязательность исправного DS18B20 для старта теста.
+#define ENABLE_TEMPERATURE_PROTECTION 1
+
 // =====================================================
 // Периоды работы.
 // =====================================================
@@ -120,8 +123,6 @@ inline bool smartLoadTimeBefore(unsigned long deadlineMs) {
 #define CURRENT_ZERO_SAMPLES        50
 #define CURRENT_ZERO_STABILITY_RAW  40.0
 
-#define FILTER_K                    0.15
-
 // =====================================================
 // Защиты.
 // =====================================================
@@ -135,5 +136,8 @@ inline bool smartLoadTimeBefore(unsigned long deadlineMs) {
 
 #define FAN_ON_TEMP_C   45.0
 #define FAN_OFF_TEMP_C  35.0
+
+#define TEMP_CONVERSION_MS     800UL
+#define TEMP_VALID_TIMEOUT_MS  3000UL
 
 #endif
